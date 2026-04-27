@@ -1,0 +1,136 @@
+[
+  {
+    "input": "250g Skyr, 1 Banane und 30g Whey",
+    "items": [
+      {"name": "Skyr",   "unit": "g",     "grams": 250, "was_estimated": false, "confidence": 0.95},
+      {"name": "Banane", "unit": "piece", "grams": 120, "was_estimated": true,  "confidence": 0.90},
+      {"name": "Whey Protein", "unit": "g",  "grams": 30,  "was_estimated": false, "confidence": 0.95}
+    ],
+    "llm_called": false,
+    "decision": "direct_save",
+    "overall_confidence": 0.93
+  },
+  {
+    "input": "zwei Eier und eine Scheibe Brot",
+    "items": [
+      {"name": "Ei",   "unit": "piece", "grams": 120, "was_estimated": true, "confidence": 0.90},
+      {"name": "Brot", "unit": "slice", "grams": 45,  "was_estimated": true, "confidence": 0.85}
+    ],
+    "llm_called": false,
+    "decision": "direct_save",
+    "overall_confidence": 0.88
+  },
+  {
+    "input": "ein Teller Pasta",
+    "items": [
+      {
+        "name": "Pasta",
+        "unit": "plate",
+        "grams": null,
+        "needs_clarification": true,
+        "options": [
+          {"label": "Klein",        "grams": 250},
+          {"label": "Normal",       "grams": 350},
+          {"label": "Groß",         "grams": 500},
+          {"label": "Eigene Menge", "type":  "custom"}
+        ],
+        "confidence": 0.50
+      }
+    ],
+    "llm_called": false,
+    "decision": "ask_short_clarification",
+    "clarification_type": "portion_size",
+    "overall_confidence": 0.50
+  },
+  {
+    "input": "eine Bowl mit Hähnchen",
+    "items": [
+      {
+        "name": "Bowl",
+        "unit": "bowl",
+        "notes": "mit Hähnchen",
+        "needs_clarification": true,
+        "options": [
+          {"label": "Reis + Hähnchen",  "default_kcal": 700},
+          {"label": "Salat + Hähnchen", "default_kcal": 450},
+          {"label": "Poke / Fisch",     "default_kcal": 600},
+          {"label": "Andere",           "type": "custom"}
+        ],
+        "confidence": 0.40
+      }
+    ],
+    "llm_called": true,
+    "decision": "ask_detailed_clarification",
+    "clarification_type": "meal_variant",
+    "overall_confidence": 0.40
+  },
+  {
+    "input": "eine Schüssel Haferflocken",
+    "items": [
+      {"name": "Haferflocken", "unit": "bowl", "grams": 80, "was_estimated": true, "confidence": 0.70}
+    ],
+    "llm_called": false,
+    "decision": "save_as_estimate",
+    "post_save_action": "ask_save_to_memory",
+    "overall_confidence": 0.70
+  },
+  {
+    "input": "500ml Milch",
+    "items": [
+      {"name": "Milch", "unit": "ml", "ml": 500, "grams": 500, "was_estimated": false, "confidence": 0.95}
+    ],
+    "llm_called": false,
+    "decision": "direct_save",
+    "overall_confidence": 0.95
+  },
+  {
+    "input": "1 Döner",
+    "items": [
+      {"name": "Döner", "unit": "piece", "grams": null, "default_kcal": 650, "was_estimated": true, "confidence": 0.70}
+    ],
+    "llm_called": false,
+    "decision": "save_as_estimate",
+    "overall_confidence": 0.70
+  },
+  {
+    "input": "Dönerbox mit Pommes",
+    "items": [
+      {"name": "Dönerbox Pommes", "unit": "piece", "grams": null, "default_kcal": 850, "was_estimated": true, "confidence": 0.70}
+    ],
+    "llm_called": false,
+    "decision": "save_as_estimate",
+    "overall_confidence": 0.70
+  },
+  {
+    "input": "Chicken Bowl mit Reis",
+    "items": [
+      {"name": "Chicken Bowl Reis", "unit": "portion", "grams": null, "default_kcal": 700, "was_estimated": true, "confidence": 0.75}
+    ],
+    "llm_called": false,
+    "decision": "save_as_estimate",
+    "overall_confidence": 0.75
+  },
+  {
+    "input": "ein Kaffee mit Milch",
+    "items": [
+      {"name": "Kaffee", "unit": "cup", "grams": null, "default_kcal": 5, "was_estimated": true, "confidence": 0.90},
+      {
+        "name": "Milch",
+        "unit": "unknown",
+        "notes": "in Kaffee",
+        "needs_clarification": true,
+        "options": [
+          {"label": "Schuss (10ml)",       "ml": 10},
+          {"label": "Etwas (30ml)",        "ml": 30},
+          {"label": "Halbes Glas (125ml)", "ml": 125},
+          {"label": "Eigene Menge",        "type": "custom"}
+        ],
+        "confidence": 0.40
+      }
+    ],
+    "llm_called": true,
+    "decision": "ask_short_clarification",
+    "clarification_type": "custom_amount",
+    "overall_confidence": 0.55
+  }
+]
