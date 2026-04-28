@@ -1,5 +1,6 @@
 import logging
 
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -27,8 +28,29 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+_BOT_COMMANDS: list[BotCommand] = [
+    BotCommand("start", "Bot starten"),
+    BotCommand("help", "Hilfe & Befehle"),
+    BotCommand("today", "Heutiger Überblick"),
+    BotCommand("goal", "Tagesziel setzen"),
+    BotCommand("delete_last", "Letzten Eintrag löschen"),
+    BotCommand("edit_last", "Letzten Eintrag bearbeiten"),
+    BotCommand("favorites", "Standardmahlzeiten"),
+    BotCommand("cancel", "Aktion abbrechen"),
+]
+
+
+async def register_bot_commands(application: Application) -> None:
+    await application.bot.set_my_commands(_BOT_COMMANDS)
+
+
 def build_application() -> Application:
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .post_init(register_bot_commands)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))

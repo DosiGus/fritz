@@ -87,4 +87,6 @@ class TestUnresolvable:
             _item(name="Wundermittel", quantity=None, unit="unknown", confidence=0.3)
         )
         assert portion.needs_clarification is True
+        labels = [option.get("label") for option in portion.options]
+        assert labels[:3] == ["Klein", "Normal", "Groß"]
         assert any(option.get("type") == "custom" for option in portion.options)

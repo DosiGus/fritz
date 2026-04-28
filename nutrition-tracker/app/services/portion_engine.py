@@ -58,7 +58,7 @@ def resolve_portion(
         confidence=min(item.confidence or 0.4, 0.45),
         was_estimated=True,
         needs_clarification=True,
-        options=[{"label": "Eigene Menge", "type": "custom"}],
+        options=_generic_size_options(),
     )
     _audit(db, user_id, "portion_clarification_needed", item, unresolved, "no_rule")
     return unresolved
@@ -125,6 +125,10 @@ def _resolve_memory(
 
 
 def _resolve_special_clarification(item: ParsedFoodItem, unit: str) -> ResolvedPortion | None:
+    sauce = _resolve_sauce_or_spread(item, unit)
+    if sauce:
+        return sauce
+
     if item.name == "Bowl" and unit == "bowl":
         return ResolvedPortion(
             item_name=item.name,
@@ -165,6 +169,34 @@ def _resolve_special_clarification(item: ParsedFoodItem, unit: str) -> ResolvedP
     return None
 
 
+def _resolve_sauce_or_spread(item: ParsedFoodItem, unit: str) -> ResolvedPortion | None:
+    if unit not in {"unknown", "tbsp", "tsp"}:
+        return None
+
+    lowered = f"{item.name} {item.notes or ''} {' '.join(item.modifiers)}".lower()
+    grams_by_name = {
+        "Mayo": 15,
+        "Hummus": 30,
+        "Auberginencreme": 30,
+    }
+    grams = grams_by_name.get(item.name)
+    if grams is None:
+        if any(word in lowered for word in ("sauce", "dressing", "creme", "aioli", "senf", "ketchup")):
+            grams = 20
+        else:
+            return None
+
+    if any(word in lowered for word in ("etwas", "bisschen", "wenig", "klein", "kleine")):
+        grams = min(grams, 15)
+
+    return ResolvedPortion(
+        item_name=item.name,
+        grams=float(grams),
+        confidence=max(min(item.confidence or 0.75, 0.85), 0.75),
+        was_estimated=True,
+    )
+
+
 def _lookup_rule(food_name: str, unit: str, db: Session | None) -> Any | None:
     if db is not None:
         repo = PortionRuleRepository(db)
@@ -185,6 +217,16 @@ def _resolve_from_rule(
     confidence = min(float(rule.confidence), item.confidence or float(rule.confidence))
 
     if _rule_has_sized_variants(item.name, unit, rule):
+        size = _size_from_item_notes(item)
+        if size:
+            variant = _variant_for_size(item.name, unit, size)
+            if variant and variant.default_grams is not None:
+                return ResolvedPortion(
+                    item_name=item.name,
+                    grams=round(float(variant.default_grams) * qty, 1),
+                    confidence=round(max(confidence, float(variant.confidence)), 2),
+                    was_estimated=True,
+                )
         return ResolvedPortion(
             item_name=item.name,
             confidence=round(confidence, 2),
@@ -214,7 +256,7 @@ def _resolve_from_rule(
         confidence=round(min(confidence, 0.5), 2),
         was_estimated=True,
         needs_clarification=True,
-        options=[{"label": "Eigene Menge", "type": "custom"}],
+        options=_generic_size_options(),
     )
 
 
@@ -229,7 +271,7 @@ def _rule_has_sized_variants(food_name: str, unit: str, rule: Any) -> bool:
 def _sized_options(food_name: str, unit: str, include_custom: bool = True) -> list[dict]:
     labels = ["Klein", "Normal", "Groß"]
     options = []
-    for label, variant in zip(labels, sized_variants(food_name, unit), strict=False):
+    for label, variant in zip(labels, sized_variants(food_name, unit)):
         options.append({"label": label, "grams": float(variant.default_grams)})
     if not options and food_name == "Pasta" and unit == "plate":
         options = [
@@ -240,6 +282,34 @@ def _sized_options(food_name: str, unit: str, include_custom: bool = True) -> li
     if include_custom:
         options.append({"label": "Eigene Menge", "type": "custom"})
     return options
+
+
+def _size_from_item_notes(item: ParsedFoodItem) -> str | None:
+    text = f"{item.notes or ''} {' '.join(item.modifiers)}".lower()
+    if any(word in text for word in ("small", "klein", "kleine", "wenig")):
+        return "small"
+    if any(word in text for word in ("large", "groß", "grosse", "gross", "viel")):
+        return "large"
+    if any(word in text for word in ("medium", "normal", "mittel")):
+        return "medium"
+    return None
+
+
+def _variant_for_size(food_name: str, unit: str, size: str) -> Any | None:
+    index = {"small": 0, "medium": 1, "large": 2}.get(size)
+    variants = sized_variants(food_name, unit)
+    if index is None or index >= len(variants):
+        return None
+    return variants[index]
+
+
+def _generic_size_options() -> list[dict]:
+    return [
+        {"label": "Klein", "grams": 100},
+        {"label": "Normal", "grams": 200},
+        {"label": "Groß", "grams": 350},
+        {"label": "Eigene Menge", "type": "custom"},
+    ]
 
 
 def _audit(

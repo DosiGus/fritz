@@ -1,5 +1,7 @@
 """Unit normalization for food quantity parsing."""
 
+from __future__ import annotations
+
 # Maps raw unit strings (lowercase, stripped) → normalized unit token
 _UNIT_ALIASES: dict[str, str] = {
     # Weight

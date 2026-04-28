@@ -12,8 +12,8 @@ from app.integrations.open_food_facts import OpenFoodFactsClient
 from app.integrations.usda_fdc import UsdaFdcClient
 from app.schemas.nutrition import NutritionMatch
 from app.services.audit_service import AuditService
-from app.services.static_data import DEFAULT_NUTRITION, canonicalize
-from app.utils.fuzzy_matching import best_match
+from app.services.static_data import DEFAULT_NUTRITION, MEAL_CONTEXT_WORDS, canonicalize
+from app.utils.fuzzy_matching import best_match, score
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,13 @@ def match(canonical_name: str, db: Session | None = None) -> NutritionMatch | No
     """
     query = _normalize_food_query(canonical_name)
     canonical = canonicalize(query)
+    if _is_non_food_query(canonical):
+        if db is not None:
+            AuditService(db).log(
+                event_type="nutrition_match_rejected",
+                payload={"canonical_name": canonical_name, "normalized": canonical, "reason": "meal_context_word"},
+            )
+        return None
 
     if db is not None:
         cached = _match_cache(canonical, db)
@@ -69,6 +76,14 @@ def match(canonical_name: str, db: Session | None = None) -> NutritionMatch | No
         return default
 
     if db is not None:
+        ambiguous = find_ambiguous_matches(canonical_name, db=db)
+        if ambiguous:
+            AuditService(db).log(
+                event_type="nutrition_match_ambiguous",
+                payload={"canonical_name": canonical_name, "candidates": [m.model_dump() for m in ambiguous]},
+            )
+            return None
+
         off = _match_open_food_facts(canonical, db)
         if off:
             _audit(db, "nutrition_matched", canonical_name, off, "open_food_facts")
@@ -85,6 +100,53 @@ def match(canonical_name: str, db: Session | None = None) -> NutritionMatch | No
         )
 
     return None
+
+
+def find_ambiguous_matches(canonical_name: str, db: Session, limit: int = 4) -> list[NutritionMatch]:
+    """Return close nutrition candidates that should be confirmed by the user.
+
+    Exact verified/cache/default hits are intentionally left alone by the caller.
+    This helper looks for medium-confidence cache/default alternatives with close
+    scores, e.g. several yogurts or branded variants for the same query.
+    """
+    query = _normalize_food_query(canonical_name)
+    canonical = canonicalize(query)
+    if _is_non_food_query(canonical):
+        return []
+    candidates: list[tuple[float, NutritionMatch]] = []
+
+    for item in db.query(NutritionItem).limit(500).all():
+        candidate_score = max(
+            score(canonical.lower(), str(item.canonical_name).lower()),
+            score(query.lower(), str(item.canonical_name).lower()),
+        )
+        if candidate_score < 74:
+            continue
+        match_obj = _from_db_item(item, confidence=round(min(candidate_score / 100, 0.86), 2))
+        if match_obj:
+            candidates.append((candidate_score, match_obj))
+
+    for default_name in DEFAULT_NUTRITION:
+        candidate_score = max(score(canonical.lower(), default_name.lower()), score(query.lower(), default_name.lower()))
+        if candidate_score < 78:
+            continue
+        default_match = _match_default(default_name)
+        if default_match:
+            default_match.confidence = round(min(candidate_score / 100, 0.86), 2)
+            candidates.append((candidate_score, default_match))
+
+    deduped: dict[str, tuple[float, NutritionMatch]] = {}
+    for candidate_score, match_obj in candidates:
+        existing = deduped.get(match_obj.canonical_name)
+        if existing is None or candidate_score > existing[0]:
+            deduped[match_obj.canonical_name] = (candidate_score, match_obj)
+
+    ranked = sorted(deduped.values(), key=lambda pair: pair[0], reverse=True)
+    if len(ranked) < 2:
+        return []
+    if ranked[0][0] - ranked[1][0] > 12 and ranked[0][0] >= 90:
+        return []
+    return [match_obj for _, match_obj in ranked[:limit]]
 
 
 def _match_cache(canonical_name: str, db: Session) -> NutritionMatch | None:
@@ -133,7 +195,7 @@ def _match_default(canonical_name: str) -> NutritionMatch | None:
 
 
 def _match_open_food_facts(canonical_name: str, db: Session) -> NutritionMatch | None:
-    client = OpenFoodFactsClient()
+    client = OpenFoodFactsClient(db=db)
     try:
         products = client.search_by_name(canonical_name, page_size=3)
     finally:
@@ -151,7 +213,7 @@ def _match_usda(canonical_name: str, db: Session) -> NutritionMatch | None:
     if not settings.usda_api_key:
         return None
 
-    client = UsdaFdcClient()
+    client = UsdaFdcClient(db=db)
     try:
         foods = client.search(canonical_name, page_size=3)
     finally:
@@ -188,6 +250,8 @@ def _from_off_product(canonical_name: str, product: dict) -> NutritionMatch | No
     fat = _num(nutriments.get("fat_100g"))
     if kcal is None and protein is None and carbs is None and fat is None:
         return None
+    if not _nutrition_values_are_plausible(canonical_name, kcal, protein, carbs, fat):
+        return None
 
     return NutritionMatch(
         canonical_name=canonical_name,
@@ -219,6 +283,17 @@ def _from_usda_food(canonical_name: str, food: dict) -> NutritionMatch | None:
             values["fat"] = value
 
     if all(value is None for value in values.values()):
+        return None
+    description = str(food.get("description") or food.get("lowercaseDescription") or "")
+    if score(canonical_name.lower(), description.lower()) < 45:
+        return None
+    if not _nutrition_values_are_plausible(
+        canonical_name,
+        values["kcal"],
+        values["protein"],
+        values["carbs"],
+        values["fat"],
+    ):
         return None
 
     return NutritionMatch(
@@ -255,6 +330,10 @@ def _normalize_food_query(name: str) -> str:
     return " ".join(filtered).strip() or name.strip()
 
 
+def _is_non_food_query(name: str) -> bool:
+    return name.strip().lower() in MEAL_CONTEXT_WORDS
+
+
 def _num(value: object) -> float | None:
     if value is None or value == "":
         return None
@@ -262,6 +341,35 @@ def _num(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _nutrition_values_are_plausible(
+    canonical_name: str,
+    kcal: float | None,
+    protein: float | None,
+    carbs: float | None,
+    fat: float | None,
+) -> bool:
+    if kcal is not None and (kcal < 0 or kcal > 950):
+        return False
+    if protein is not None and (protein < 0 or protein > 100):
+        return False
+    if carbs is not None and (carbs < 0 or carbs > 100):
+        return False
+    if fat is not None and (fat < 0 or fat > 100):
+        return False
+
+    lowered = canonical_name.lower()
+    if any(word in lowered for word in ("milch", "kaffee", "cappuccino", "espresso")):
+        if kcal is not None and kcal > 130:
+            return False
+        if fat is not None and fat > 10:
+            return False
+        if protein is not None and protein > 12:
+            return False
+        if carbs is not None and carbs > 20:
+            return False
+    return True
 
 
 def _audit(

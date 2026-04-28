@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import date
 
@@ -7,9 +9,14 @@ from app.db.repositories.food_logs import FoodLogRepository
 from app.db.repositories.user_goals import UserGoalRepository
 
 
-def build_daily_summary(user_id: uuid.UUID, day: date, db: Session) -> str:
+def build_daily_summary(
+    user_id: uuid.UUID,
+    day: date,
+    db: Session,
+    tz_name: str | None = None,
+) -> str:
     log_repo = FoodLogRepository(db)
-    logs = log_repo.get_for_user_on_date(user_id, day)
+    logs = log_repo.get_for_user_on_date(user_id, day, tz_name=tz_name)
 
     if not logs:
         return "Heute noch nichts geloggt."

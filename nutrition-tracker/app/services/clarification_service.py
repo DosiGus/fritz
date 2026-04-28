@@ -38,7 +38,7 @@ def build_clarification(pending_items: list[dict] | dict, user_id: uuid.UUID, db
     AuditService(db).log(
         event_type="clarification_asked",
         user_id=user_id,
-        payload={"target_index": target_idx, "question": question["text"]},
+        payload={"target_index": target_idx, "question": question["text"], "type": question["type"]},
     )
 
     return BotResponse(
@@ -64,10 +64,20 @@ def resolve_clarification(callback_data: str, user_id: uuid.UUID, db: Session) -
     payload = dict(state.payload)
     if callback_data == "cancel":
         state_repo.delete_for_user(user_id)
+        AuditService(db).log(
+            event_type="clarification_failed",
+            user_id=user_id,
+            payload={"reason": "cancelled", "state_type": state.state_type},
+        )
         return BotResponse(text="Abgebrochen.")
 
     option = _option_from_callback(callback_data, payload)
     if option is None:
+        AuditService(db).log(
+            event_type="clarification_failed",
+            user_id=user_id,
+            payload={"reason": "unknown_option", "callback_data": callback_data},
+        )
         return BotResponse(text="Diese Auswahl konnte ich nicht zuordnen.")
 
     target_idx = int(payload.get("target_index", 0))
@@ -240,6 +250,7 @@ def _question_for_payload(payload: dict, target_idx: int) -> dict:
     options = portion.get("options") or [{"label": "Eigene Menge", "type": "custom"}]
     question_type = _question_type(options)
     text = {
+        "food_match": "Welches Lebensmittel passt?",
         "meal_variant": "Welche Variante passt am ehesten?",
         "custom_amount": "Welche Menge passt?",
         "portion_size": "Welche Portion passt am besten?",
@@ -257,6 +268,8 @@ def _question_for_payload(payload: dict, target_idx: int) -> dict:
 
 
 def _question_type(options: list[dict]) -> str:
+    if any(option.get("nutrition_match") for option in options):
+        return "food_match"
     labels = {str(option.get("label", "")).lower() for option in options}
     if {"reis + hähnchen", "salat + hähnchen"} & labels:
         return "meal_variant"
@@ -318,6 +331,17 @@ def _apply_option(payload: dict, target_idx: int, option: dict) -> None:
             portion["item_name"] = new_name
             if payload.get("parsed_items"):
                 payload["parsed_items"][target_idx]["name"] = new_name
+    if "nutrition_match" in option:
+        match = dict(option["nutrition_match"])
+        portion["item_name"] = match["canonical_name"]
+        portion["confidence"] = max(float(portion.get("confidence") or 0.0), float(match.get("confidence") or 0.80))
+        if payload.get("parsed_items"):
+            payload["parsed_items"][target_idx]["name"] = match["canonical_name"]
+        matches = payload.get("matches") or []
+        while len(matches) <= target_idx:
+            matches.append(None)
+        matches[target_idx] = match
+        payload["matches"] = matches
 
     portion["needs_clarification"] = False
     portion["was_estimated"] = True

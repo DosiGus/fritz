@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import uuid
 
 from sqlalchemy.orm import Session
 
-from app.db.models import MealTemplate
+from app.db.models import MealTemplate, MealTemplateItem
 
 
 class MealTemplateRepository:
@@ -49,3 +51,15 @@ class MealTemplateRepository:
     def delete(self, template: MealTemplate) -> None:
         self.db.delete(template)
         self.db.commit()
+
+    def replace_items(self, template: MealTemplate, items: list[dict]) -> list[MealTemplateItem]:
+        self.db.query(MealTemplateItem).filter(MealTemplateItem.template_id == template.id).delete()
+        created: list[MealTemplateItem] = []
+        for item in items:
+            template_item = MealTemplateItem(template_id=template.id, **item)
+            self.db.add(template_item)
+            created.append(template_item)
+        self.db.commit()
+        for item in created:
+            self.db.refresh(item)
+        return created

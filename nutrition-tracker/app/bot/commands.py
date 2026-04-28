@@ -1,5 +1,4 @@
 import logging
-from datetime import date, timezone
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -10,6 +9,9 @@ from app.db.repositories.meal_templates import MealTemplateRepository
 from app.db.repositories.user_goals import UserGoalRepository
 from app.db.repositories.users import UserRepository
 from app.db.session import SessionLocal
+from app.services.audit_service import AuditService
+from app.services.edit_log_service import start_edit_last
+from app.utils.time import user_today
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +71,8 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         log_repo = FoodLogRepository(db)
-        today = date.today()
-        logs = log_repo.get_for_user_on_date(db_user.id, today)
+        today = user_today(db_user.timezone)
+        logs = log_repo.get_for_user_on_date(db_user.id, today, tz_name=db_user.timezone)
 
         if not logs:
             await update.message.reply_text("Heute noch nichts geloggt. Schreib mir was du gegessen hast!")
@@ -143,16 +145,27 @@ async def cmd_delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         log_repo.soft_delete(last_log)
+        AuditService(db).log(
+            event_type="food_log_deleted",
+            user_id=db_user.id,
+            payload={"food_log_id": str(last_log.id), "source": "delete_last"},
+        )
         kcal = float(last_log.total_kcal or 0)
 
     await update.message.reply_text(f"🗑 Letzter Eintrag gelöscht ({kcal:.0f} kcal).")
 
 
 async def cmd_edit_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "✏️ Sende mir den korrigierten Eintrag als neue Nachricht.\n"
-        "Der letzte Eintrag wird dann ersetzt."
-    )
+    user = update.effective_user
+    with SessionLocal() as db:
+        user_repo = UserRepository(db)
+        db_user = user_repo.get_by_telegram_id(user.id)
+        if not db_user:
+            await update.message.reply_text("Starte zuerst mit /start.")
+            return
+        response = start_edit_last(db_user.id, db)
+
+    await update.message.reply_text(response.text)
 
 
 async def cmd_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -186,6 +199,12 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         db_user = user_repo.get_by_telegram_id(user.id)
         if db_user:
             state_repo = ConversationStateRepository(db)
+            state = state_repo.get_active_for_user(db_user.id)
             state_repo.delete_for_user(db_user.id)
+            AuditService(db).log(
+                event_type="conversation_cancelled",
+                user_id=db_user.id,
+                payload={"state_type": state.state_type if state else None},
+            )
 
     await update.message.reply_text("❌ Abgebrochen.")

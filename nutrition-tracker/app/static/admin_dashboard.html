@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fritz · Admin Dashboard</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --bg-elev: #161b22;
+    --bg-elev-2: #1c2230;
+    --border: #2a3140;
+    --fg: #e6edf3;
+    --fg-dim: #8b949e;
+    --fg-mute: #6e7681;
+    --accent: #4f8cff;
+    --accent-2: #6ea8ff;
+    --good: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --info: #58a6ff;
+    --shadow: 0 4px 14px rgba(0,0,0,.35);
+    --radius: 8px;
+    --radius-sm: 6px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  a { color: var(--accent-2); text-decoration: none; }
+  button {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button:hover { background: #232a3a; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-2); }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  input, select, textarea {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Layout */
+  .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  .sidebar {
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border);
+    padding: 16px 0;
+    display: flex; flex-direction: column;
+  }
+  .brand {
+    padding: 0 18px 16px;
+    font-weight: 700;
+    font-size: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+    letter-spacing: .3px;
+  }
+  .brand small { color: var(--fg-dim); font-weight: 400; font-size: 11px; display: block; margin-top: 2px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+  .nav button {
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    color: var(--fg-dim);
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav button:hover { background: var(--bg-elev-2); color: var(--fg); }
+  .nav button.active { background: var(--bg-elev-2); color: var(--fg); }
+  .nav .badge {
+    background: var(--bg);
+    color: var(--fg-dim);
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+  }
+  .topbar .spacer { flex: 1; }
+  .token-state {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.ok { background: var(--good); }
+
+  .content { padding: 24px; overflow-y: auto; }
+
+  /* Login */
+  .login-wrap {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px; background: var(--bg);
+  }
+  .login-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 28px;
+    width: 100%; max-width: 380px;
+  }
+  .login-card h1 { margin: 0 0 4px; font-size: 18px; }
+  .login-card p { color: var(--fg-dim); margin: 0 0 18px; font-size: 13px; }
+  .login-card input { width: 100%; margin-bottom: 12px; padding: 10px 12px; }
+  .login-card button { width: 100%; padding: 10px; }
+  .login-error { color: var(--bad); font-size: 12px; margin-top: 8px; min-height: 14px; }
+
+  /* Cards / sections */
+  .section { margin-bottom: 28px; }
+  .section h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    margin: 0 0 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .grid { display: grid; gap: 12px; }
+  .grid.cards { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .grid.cards-lg { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .stat .label { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .6px; }
+  .stat .value { font-size: 24px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .value.warn { color: var(--warn); }
+  .stat .value.bad { color: var(--bad); }
+  .stat .value.good { color: var(--good); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    white-space: nowrap;
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  td.wrap { white-space: normal; word-break: break-word; }
+  th { color: var(--fg-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; background: var(--bg-elev-2); position: sticky; top: 0; }
+  tbody tr:hover { background: rgba(255,255,255,.02); }
+  td.mono, th.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--fg-dim); }
+  .empty { padding: 40px; text-align: center; color: var(--fg-mute); font-size: 13px; }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 8px;
+    font-size: 11px;
+    border-radius: 10px;
+    background: var(--bg-elev-2);
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+  }
+  .pill.bad { color: var(--bad); border-color: rgba(248,81,73,.3); background: rgba(248,81,73,.08); }
+  .pill.warn { color: var(--warn); border-color: rgba(210,153,34,.3); background: rgba(210,153,34,.08); }
+  .pill.good { color: var(--good); border-color: rgba(63,185,80,.3); background: rgba(63,185,80,.08); }
+  .pill.info { color: var(--info); border-color: rgba(88,166,255,.3); background: rgba(88,166,255,.08); }
+
+  details { background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; }
+  details summary { cursor: pointer; color: var(--fg-dim); font-size: 12px; }
+  details pre { margin: 8px 0 0; font-size: 11px; background: var(--bg); padding: 10px; border-radius: var(--radius-sm); overflow-x: auto; max-height: 320px; }
+
+  .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar .spacer { flex: 1; }
+  .toolbar input, .toolbar select { padding: 5px 10px; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* DB browser */
+  .db-layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
+  .db-tablelist {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px;
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+  }
+  .db-tablelist button {
+    width: 100%; text-align: left; background: transparent; border: none; color: var(--fg);
+    padding: 8px 10px; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+  }
+  .db-tablelist button:hover { background: var(--bg-elev-2); }
+  .db-tablelist button.active { background: var(--bg-elev-2); color: var(--accent-2); }
+  .db-tablelist .count { font-size: 11px; color: var(--fg-mute); font-variant-numeric: tabular-nums; }
+
+  .pagination { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-elev-2); }
+  .pagination .info { color: var(--fg-dim); font-size: 12px; flex: 1; }
+
+  .form-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .form-row label { color: var(--fg-dim); font-size: 12px; }
+  .form-row input, .form-row select { width: 100%; }
+
+  .toast {
+    position: fixed; bottom: 20px; right: 20px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    max-width: 360px;
+    z-index: 1000;
+  }
+  .toast.bad { border-left-color: var(--bad); }
+  .toast.good { border-left-color: var(--good); }
+  .hidden { display: none !important; }
+
+  .loader { color: var(--fg-mute); font-size: 12px; padding: 8px; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN VIEW -->
+<div id="loginView" class="login-wrap">
+  <div class="login-card">
+    <h1>Fritz Admin</h1>
+    <p>Bitte gib das <code>ADMIN_TOKEN</code> ein, um das Dashboard zu öffnen.</p>
+    <input id="tokenInput" type="password" placeholder="X-Admin-Token" autocomplete="off" />
+    <button class="primary" onclick="loginFromInput()">Verbinden</button>
+    <div id="loginError" class="login-error"></div>
+  </div>
+</div>
+
+<!-- APP VIEW -->
+<div id="appView" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand">Fritz<small>Admin Dashboard</small></div>
+    <nav class="nav" id="nav">
+      <button data-tab="overview" class="active">Übersicht</button>
+      <button data-tab="errors">Fehler &amp; Logs</button>
+      <button data-tab="reviews">Reviews <span class="badge" id="badge-reviews">0</span></button>
+      <button data-tab="actions">Aktionen</button>
+      <button data-tab="db">Datenbank</button>
+    </nav>
+    <div style="flex:1"></div>
+    <div style="padding: 12px 18px; font-size: 11px; color: var(--fg-mute); border-top: 1px solid var(--border);">
+      <div id="connStatus">Verbunden</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div id="tabTitle" style="font-weight: 600;">Übersicht</div>
+      <div class="spacer"></div>
+      <button onclick="refreshActiveTab()">⟳ Aktualisieren</button>
+      <div class="token-state">
+        <div class="dot ok" id="connDot"></div>
+        <span id="tokenLabel">verbunden</span>
+      </div>
+      <button onclick="logout()">Logout</button>
+    </div>
+
+    <div class="content">
+
+      <!-- ÜBERSICHT -->
+      <section id="panel-overview" class="panel active">
+        <div class="section">
+          <h2>Stats</h2>
+          <div class="grid cards" id="statsGrid"><div class="loader">lädt…</div></div>
+        </div>
+        <div class="section">
+          <h2>Operative Metriken (heute / aktuell)</h2>
+          <div class="grid cards" id="metricsGrid"><div class="loader">lädt…</div></div>
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="section">
+            <h2>Top Foods <span class="pill">canonical_name</span></h2>
+            <div id="topFoods" class="table-wrap"><div class="loader">lädt…</div></div>
+          </div>
+          <div class="section">
+            <h2>Unbekannte Foods <span class="pill">nutrition_match_failed</span></h2>
+            <div id="unknownFoods" class="table-wrap"><div class="loader">lädt…</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FEHLER -->
+      <section id="panel-errors" class="panel">
+        <div class="section">
+          <h2>Failed Logs <span class="pill">failed / pending_confirmation</span></h2>
+          <div id="failedLogs" class="table-wrap"><div class="loader">lädt…</div></div>
+        </div>
+        <div class="section">
+          <h2>API Errors <span class="pill">Open Food Facts / USDA</span></h2>
+          <div id="apiErrors" class="table-wrap"><div class="loader">lädt…</div></div>
+        </div>
+        <div class="section">
+          <h2>LLM Errors</h2>
+          <div id="llmErrors" class="table-wrap"><div class="loader">lädt…</div></div>
+        </div>
+        <div class="section">
+          <h2>Voice Errors</h2>
+          <div id="voiceErrors" class="table-wrap"><div class="loader">lädt…</div></div>
+        </div>
+      </section>
+
+      <!-- REVIEWS -->
+      <section id="panel-reviews" class="panel">
+        <div class="section">
+          <h2>
+            Nutrition Reviews
+            <span>
+              <label style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--fg-dim);">
+                <input type="checkbox" id="reviewsIncludeResolved" /> auch erledigte zeigen
+              </label>
+            </span>
+          </h2>
+          <div id="reviewsList" class="table-wrap"><div class="loader">lädt…</div></div>
+        </div>
+      </section>
+
+      <!-- AKTIONEN -->
+      <section id="panel-actions" class="panel">
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="card">
+            <h2 style="margin-top:0">Food Alias hinzufügen</h2>
+            <div class="form-row"><label>Alias</label><input id="al_alias" placeholder="z. B. joghurt" /></div>
+            <div class="form-row"><label>Canonical Name</label><input id="al_canonical" placeholder="yogurt" /></div>
+            <div class="form-row"><label>Sprache</label><input id="al_lang" value="de" /></div>
+            <div class="form-row"><label>Confidence</label><input id="al_conf" type="number" step="0.05" value="0.8" /></div>
+            <button class="primary" onclick="submitFoodAlias()">Anlegen</button>
+          </div>
+
+          <div class="card">
+            <h2 style="margin-top:0">Portion Rule hinzufügen</h2>
+            <div class="form-row"><label>Unit Text*</label><input id="pr_unit" placeholder="z. B. Becher" /></div>
+            <div class="form-row"><label>Food Name</label><input id="pr_food" placeholder="(optional)" /></div>
+            <div class="form-row"><label>Default Grams</label><input id="pr_grams" type="number" step="1" /></div>
+            <div class="form-row"><label>Default Kcal</label><input id="pr_kcal" type="number" step="1" /></div>
+            <div class="form-row"><label>Country</label><input id="pr_country" value="DE" /></div>
+            <div class="form-row"><label>Confidence</label><input id="pr_conf" type="number" step="0.05" value="0.7" /></div>
+            <button class="primary" onclick="submitPortionRule()">Anlegen</button>
+          </div>
+
+          <div class="card">
+            <h2 style="margin-top:0">Sentry Test</h2>
+            <p style="color:var(--fg-dim); font-size: 12px;">Sendet ein Smoke-Event an Sentry (nur wenn <code>SENTRY_DSN</code> gesetzt).</p>
+            <button onclick="sentryTest()">Test-Event senden</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- DATENBANK -->
+      <section id="panel-db" class="panel">
+        <div class="db-layout">
+          <div class="db-tablelist" id="dbTableList"><div class="loader">lädt…</div></div>
+          <div>
+            <div class="toolbar">
+              <strong id="dbCurrentTable" style="font-family: ui-monospace, monospace;">— wähle eine Tabelle —</strong>
+              <span class="pill" id="dbRowCount"></span>
+              <div class="spacer"></div>
+              <label style="font-size: 12px; color: var(--fg-dim);">Limit
+                <select id="dbLimit">
+                  <option>25</option>
+                  <option selected>50</option>
+                  <option>100</option>
+                  <option>200</option>
+                  <option>500</option>
+                </select>
+              </label>
+              <button onclick="loadDbTable(currentTable, 0)" id="dbReloadBtn" disabled>⟳ Reload</button>
+            </div>
+            <div id="dbTable" class="table-wrap"><div class="empty">Keine Tabelle ausgewählt.</div></div>
+            <div id="dbPagination" class="hidden">
+              <div class="pagination">
+                <div class="info" id="dbPageInfo"></div>
+                <button id="dbPrev" onclick="dbPage(-1)">‹ Prev</button>
+                <button id="dbNext" onclick="dbPage(1)">Next ›</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+// =========================================================
+// State
+// =========================================================
+const STATE = {
+  token: null,
+  activeTab: "overview",
+  reviewsIncludeResolved: false,
+  db: { table: null, columns: [], rows: [], total: 0, limit: 50, offset: 0 },
+};
+let currentTable = null;
+
+// =========================================================
+// API helper
+// =========================================================
+async function api(path, opts = {}) {
+  const headers = Object.assign({ "X-Admin-Token": STATE.token, "Content-Type": "application/json" }, opts.headers || {});
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) {
+    logout();
+    throw new Error("Ungültiger Token.");
+  }
+  if (!res.ok) {
+    let msg = "HTTP " + res.status;
+    try { const j = await res.json(); msg = j.detail || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// =========================================================
+// Auth / login
+// =========================================================
+function loginFromInput() {
+  const v = document.getElementById("tokenInput").value.trim();
+  if (!v) { setLoginError("Token erforderlich"); return; }
+  attemptLogin(v);
+}
+async function attemptLogin(token) {
+  setLoginError("");
+  try {
+    const res = await fetch("/admin/stats", { headers: { "X-Admin-Token": token } });
+    if (res.status === 401) { setLoginError("Token ungültig."); return; }
+    if (res.status === 503) { setLoginError("ADMIN_TOKEN auf dem Server nicht konfiguriert."); return; }
+    if (!res.ok) { setLoginError("Fehler: HTTP " + res.status); return; }
+    STATE.token = token;
+    sessionStorage.setItem("fritzAdminToken", token);
+    showApp();
+  } catch (e) {
+    setLoginError("Verbindung fehlgeschlagen: " + e.message);
+  }
+}
+function setLoginError(msg) { document.getElementById("loginError").textContent = msg; }
+function logout() {
+  STATE.token = null;
+  sessionStorage.removeItem("fritzAdminToken");
+  document.getElementById("appView").classList.add("hidden");
+  document.getElementById("loginView").classList.remove("hidden");
+  document.getElementById("tokenInput").value = "";
+}
+function showApp() {
+  document.getElementById("loginView").classList.add("hidden");
+  document.getElementById("appView").classList.remove("hidden");
+  switchTab("overview");
+}
+
+// =========================================================
+// Tab switching
+// =========================================================
+document.getElementById("nav").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-tab]");
+  if (btn) switchTab(btn.dataset.tab);
+});
+function switchTab(name) {
+  STATE.activeTab = name;
+  document.querySelectorAll(".nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + name));
+  const titles = { overview: "Übersicht", errors: "Fehler & Logs", reviews: "Reviews", actions: "Aktionen", db: "Datenbank" };
+  document.getElementById("tabTitle").textContent = titles[name] || name;
+  loadTab(name);
+}
+function refreshActiveTab() { loadTab(STATE.activeTab); }
+function loadTab(name) {
+  if (name === "overview") loadOverview();
+  else if (name === "errors") loadErrors();
+  else if (name === "reviews") loadReviews();
+  else if (name === "db") loadDbTables();
+}
+
+// =========================================================
+// Toast
+// =========================================================
+let toastTimer = null;
+function toast(msg, kind = "") {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast " + kind;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), 4000);
+}
+
+// =========================================================
+// Render helpers
+// =========================================================
+function escape(s) {
+  if (s === null || s === undefined) return "";
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function fmtVal(v) {
+  if (v === null || v === undefined) return '<span style="color:var(--fg-mute)">null</span>';
+  if (typeof v === "boolean") return `<span class="pill ${v ? "good" : ""}">${v}</span>`;
+  if (typeof v === "object") {
+    const json = JSON.stringify(v);
+    if (json.length < 60) return `<code style="font-size:11px;">${escape(json)}</code>`;
+    return `<details><summary>JSON (${json.length} chars)</summary><pre>${escape(JSON.stringify(v, null, 2))}</pre></details>`;
+  }
+  const s = String(v);
+  if (s.length > 120) return `<details><summary>${escape(s.slice(0, 80))}…</summary><pre>${escape(s)}</pre></details>`;
+  return escape(s);
+}
+function fmtDate(s) {
+  if (!s) return "";
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    return d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "medium" });
+  } catch (_) { return s; }
+}
+function statCard(label, value, klass = "") {
+  return `<div class="card stat"><div class="label">${escape(label)}</div><div class="value ${klass}">${value === null || value === undefined ? "—" : escape(value)}</div></div>`;
+}
+function emptyTable(msg = "Keine Einträge.") { return `<div class="empty">${escape(msg)}</div>`; }
+function renderTable(columns, rows, opts = {}) {
+  if (!rows || rows.length === 0) return emptyTable(opts.empty || "Keine Einträge.");
+  const head = columns.map(c => `<th>${escape(c)}</th>`).join("");
+  const actionsCol = opts.actionsHeader ? `<th>${escape(opts.actionsHeader)}</th>` : "";
+  const body = rows.map(r => {
+    const cells = columns.map(c => {
+      const v = r[c];
+      if (c.endsWith("_at") || c === "created_at" || c === "updated_at" || c === "logged_at" || c === "expires_at" || c === "last_used_at") {
+        return `<td class="mono">${escape(fmtDate(v))}</td>`;
+      }
+      if (typeof v === "object" && v !== null) return `<td class="wrap">${fmtVal(v)}</td>`;
+      const isId = c.endsWith("_id") || c === "id";
+      return `<td class="${isId ? "mono" : ""}">${fmtVal(v)}</td>`;
+    }).join("");
+    const act = opts.renderActions ? `<td>${opts.renderActions(r)}</td>` : "";
+    return `<tr>${cells}${act}</tr>`;
+  }).join("");
+  return `<table><thead><tr>${head}${actionsCol}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+// =========================================================
+// Overview
+// =========================================================
+async function loadOverview() {
+  document.getElementById("statsGrid").innerHTML = '<div class="loader">lädt…</div>';
+  document.getElementById("metricsGrid").innerHTML = '<div class="loader">lädt…</div>';
+  document.getElementById("topFoods").innerHTML = '<div class="loader">lädt…</div>';
+  document.getElementById("unknownFoods").innerHTML = '<div class="loader">lädt…</div>';
+  try {
+    const [stats, metrics, top, unknown] = await Promise.all([
+      api("/admin/stats"),
+      api("/admin/metrics"),
+      api("/admin/top-foods?limit=15"),
+      api("/admin/unknown-foods?limit=15"),
+    ]);
+    document.getElementById("statsGrid").innerHTML = [
+      statCard("Total Users", stats.total_users),
+      statCard("Logs heute", stats.logs_today),
+      statCard("Audit Events heute", stats.audit_events_today),
+    ].join("");
+    const m = metrics;
+    document.getElementById("metricsGrid").innerHTML = [
+      statCard("Failed Logs", m.failed_logs, m.failed_logs > 0 ? "bad" : ""),
+      statCard("Pending Reviews", m.pending_reviews, m.pending_reviews > 0 ? "warn" : ""),
+      statCard("Match-Failed heute", m.nutrition_match_failed_today, m.nutrition_match_failed_today > 0 ? "warn" : ""),
+      statCard("Reviews offen", m.nutrition_reviews_open, m.nutrition_reviews_open > 0 ? "warn" : ""),
+      statCard("Reviews resolved", m.nutrition_reviews_resolved, "good"),
+      statCard("API Errors heute", m.api_errors_today, m.api_errors_today > 0 ? "bad" : ""),
+      statCard("LLM Errors heute", m.llm_errors_today, m.llm_errors_today > 0 ? "bad" : ""),
+      statCard("Voice Errors heute", m.voice_errors_today, m.voice_errors_today > 0 ? "bad" : ""),
+      statCard("Clarifications offen", m.clarification_open_total, m.clarification_open_total > 0 ? "warn" : ""),
+      statCard("Clarification Abort %", m.clarification_abort_rate === null ? "—" : Math.round(m.clarification_abort_rate * 100) + "%"),
+    ].join("");
+    document.getElementById("badge-reviews").textContent = m.nutrition_reviews_open || 0;
+
+    document.getElementById("topFoods").innerHTML = renderTable(["canonical_name", "count"], top, { empty: "Noch keine Logs." });
+    document.getElementById("unknownFoods").innerHTML = renderTable(["food_name", "count"], unknown, { empty: "Keine unbekannten Foods – top!" });
+  } catch (e) {
+    toast("Fehler beim Laden: " + e.message, "bad");
+  }
+}
+
+// =========================================================
+// Errors
+// =========================================================
+async function loadErrors() {
+  document.getElementById("failedLogs").innerHTML = '<div class="loader">lädt…</div>';
+  document.getElementById("apiErrors").innerHTML = '<div class="loader">lädt…</div>';
+  document.getElementById("llmErrors").innerHTML = '<div class="loader">lädt…</div>';
+  document.getElementById("voiceErrors").innerHTML = '<div class="loader">lädt…</div>';
+  try {
+    const [failed, apiErr, llm, voice] = await Promise.all([
+      api("/admin/failed-logs?limit=50"),
+      api("/admin/api-errors?limit=50"),
+      api("/admin/llm-errors?limit=50"),
+      api("/admin/voice-errors?limit=50"),
+    ]);
+    document.getElementById("failedLogs").innerHTML = renderTable(
+      ["logged_at", "status", "source", "raw_text", "confidence", "user_id"], failed, { empty: "Keine fehlgeschlagenen Logs 🎉" });
+    document.getElementById("apiErrors").innerHTML = renderTable(
+      ["created_at", "service", "method", "endpoint", "status_code", "duration_ms", "error"], apiErr, { empty: "Keine API-Fehler." });
+    document.getElementById("llmErrors").innerHTML = renderTable(
+      ["created_at", "event_type", "user_id", "payload"], llm, { empty: "Keine LLM-Fehler." });
+    document.getElementById("voiceErrors").innerHTML = renderTable(
+      ["created_at", "event_type", "user_id", "payload"], voice, { empty: "Keine Voice-Fehler." });
+  } catch (e) {
+    toast("Fehler beim Laden: " + e.message, "bad");
+  }
+}
+
+// =========================================================
+// Reviews
+// =========================================================
+document.getElementById("reviewsIncludeResolved").addEventListener("change", (e) => {
+  STATE.reviewsIncludeResolved = e.target.checked;
+  loadReviews();
+});
+
+async function loadReviews() {
+  document.getElementById("reviewsList").innerHTML = '<div class="loader">lädt…</div>';
+  try {
+    const incl = STATE.reviewsIncludeResolved ? "&include_resolved=true" : "";
+    const rows = await api(`/admin/nutrition-reviews?limit=100${incl}`);
+    if (!rows || rows.length === 0) {
+      document.getElementById("reviewsList").innerHTML = emptyTable("Keine offenen Reviews.");
+      return;
+    }
+    const head = ["created_at", "user_id", "items", "raw_text", "status", "actions"];
+    const body = rows.map(r => {
+      const p = r.payload || {};
+      const items = (p.items || []).join(", ");
+      return `<tr>
+        <td class="mono">${escape(fmtDate(r.created_at))}</td>
+        <td class="mono">${escape(r.user_id || "")}</td>
+        <td>${escape(items)}</td>
+        <td class="wrap">${escape(p.raw_text || "")}</td>
+        <td>${r.resolved ? '<span class="pill good">resolved</span>' : '<span class="pill warn">open</span>'}</td>
+        <td>${r.resolved ? "" : `<button onclick="openResolveDialog('${r.id}', ${escapeAttr(JSON.stringify(p))})">resolve…</button>`}</td>
+      </tr>`;
+    }).join("");
+    document.getElementById("reviewsList").innerHTML =
+      `<table><thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+  } catch (e) {
+    toast("Fehler beim Laden: " + e.message, "bad");
+  }
+}
+function escapeAttr(s) { return s.replace(/"/g, "&quot;").replace(/'/g, "\\'"); }
+
+async function openResolveDialog(eventId, payloadJson) {
+  let payload = {};
+  try { payload = JSON.parse(payloadJson.replace(/&quot;/g, '"')); } catch (_) {}
+  const guess = (payload.items && payload.items[0]) || "";
+  const canonical = prompt("Canonical Name (z. B. yogurt):", guess);
+  if (!canonical) return;
+  const kcalStr = prompt("Kcal pro 100g (leer = nur als resolved markieren):", "");
+  const body = { resolution: "resolved", canonical_name: canonical };
+  if (kcalStr && !isNaN(parseFloat(kcalStr))) {
+    body.kcal_100g = parseFloat(kcalStr);
+    const protein = prompt("Protein /100g (optional):", "");
+    const carbs = prompt("Carbs /100g (optional):", "");
+    const fat = prompt("Fat /100g (optional):", "");
+    if (protein) body.protein_100g = parseFloat(protein);
+    if (carbs) body.carbs_100g = parseFloat(carbs);
+    if (fat) body.fat_100g = parseFloat(fat);
+  }
+  try {
+    await api(`/admin/nutrition-reviews/${eventId}/resolve`, { method: "POST", body: JSON.stringify(body) });
+    toast("Review aufgelöst.", "good");
+    loadReviews();
+  } catch (e) { toast("Fehler: " + e.message, "bad"); }
+}
+
+// =========================================================
+// Actions
+// =========================================================
+async function submitFoodAlias() {
+  const body = {
+    alias: document.getElementById("al_alias").value.trim(),
+    canonical_name: document.getElementById("al_canonical").value.trim(),
+    language: document.getElementById("al_lang").value.trim() || "de",
+    confidence: parseFloat(document.getElementById("al_conf").value) || 0.8,
+  };
+  if (!body.alias || !body.canonical_name) return toast("Alias und Canonical Name sind erforderlich.", "bad");
+  try {
+    await api("/admin/food-aliases", { method: "POST", body: JSON.stringify(body) });
+    toast("Alias angelegt.", "good");
+    document.getElementById("al_alias").value = "";
+    document.getElementById("al_canonical").value = "";
+  } catch (e) { toast("Fehler: " + e.message, "bad"); }
+}
+async function submitPortionRule() {
+  const body = {
+    unit_text: document.getElementById("pr_unit").value.trim(),
+    food_name: document.getElementById("pr_food").value.trim() || null,
+    default_grams: parseFloat(document.getElementById("pr_grams").value) || null,
+    default_kcal: parseFloat(document.getElementById("pr_kcal").value) || null,
+    country: document.getElementById("pr_country").value.trim() || "DE",
+    confidence: parseFloat(document.getElementById("pr_conf").value) || 0.7,
+  };
+  if (!body.unit_text) return toast("Unit Text ist erforderlich.", "bad");
+  try {
+    await api("/admin/portion-rules", { method: "POST", body: JSON.stringify(body) });
+    toast("Portion Rule angelegt.", "good");
+    document.getElementById("pr_unit").value = "";
+    document.getElementById("pr_food").value = "";
+  } catch (e) { toast("Fehler: " + e.message, "bad"); }
+}
+async function sentryTest() {
+  try {
+    const r = await api("/admin/sentry-test", { method: "POST" });
+    toast("Sentry Event gesendet: " + (r.event_id || "(ohne ID)"), "good");
+  } catch (e) { toast("Fehler: " + e.message, "bad"); }
+}
+
+// =========================================================
+// DB Browser
+// =========================================================
+async function loadDbTables() {
+  document.getElementById("dbTableList").innerHTML = '<div class="loader">lädt…</div>';
+  try {
+    const tables = await api("/admin/db/tables");
+    document.getElementById("dbTableList").innerHTML = tables.map(t =>
+      `<button data-tbl="${escape(t.name)}" onclick="loadDbTable('${t.name}', 0)">
+         <span>${escape(t.name)}</span><span class="count">${t.count === null ? "?" : t.count}</span>
+       </button>`).join("");
+    if (currentTable) {
+      const btn = document.querySelector(`#dbTableList button[data-tbl="${currentTable}"]`);
+      if (btn) btn.classList.add("active");
+    }
+  } catch (e) {
+    toast("Fehler beim Laden der Tabellen: " + e.message, "bad");
+  }
+}
+async function loadDbTable(name, offset = 0) {
+  currentTable = name;
+  STATE.db.table = name;
+  STATE.db.offset = offset;
+  STATE.db.limit = parseInt(document.getElementById("dbLimit").value, 10) || 50;
+
+  document.querySelectorAll("#dbTableList button").forEach(b => b.classList.toggle("active", b.dataset.tbl === name));
+  document.getElementById("dbCurrentTable").textContent = name;
+  document.getElementById("dbReloadBtn").disabled = false;
+  document.getElementById("dbTable").innerHTML = '<div class="loader">lädt…</div>';
+
+  try {
+    const data = await api(`/admin/db/${encodeURIComponent(name)}?limit=${STATE.db.limit}&offset=${STATE.db.offset}`);
+    STATE.db.columns = data.columns;
+    STATE.db.rows = data.rows;
+    STATE.db.total = data.total;
+    document.getElementById("dbRowCount").textContent = data.total + " Zeilen";
+    document.getElementById("dbTable").innerHTML = renderTable(data.columns, data.rows, { empty: "Tabelle ist leer." });
+    renderDbPagination();
+  } catch (e) {
+    document.getElementById("dbTable").innerHTML = `<div class="empty" style="color:var(--bad)">${escape(e.message)}</div>`;
+  }
+}
+function renderDbPagination() {
+  const wrap = document.getElementById("dbPagination");
+  wrap.classList.remove("hidden");
+  const { offset, limit, total } = STATE.db;
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(offset + limit, total);
+  document.getElementById("dbPageInfo").textContent = `${start}–${end} von ${total}`;
+  document.getElementById("dbPrev").disabled = offset <= 0;
+  document.getElementById("dbNext").disabled = end >= total;
+}
+function dbPage(dir) {
+  const next = STATE.db.offset + dir * STATE.db.limit;
+  if (next < 0) return;
+  loadDbTable(currentTable, next);
+}
+document.getElementById("dbLimit").addEventListener("change", () => {
+  if (currentTable) loadDbTable(currentTable, 0);
+});
+
+// =========================================================
+// Boot
+// =========================================================
+(function boot() {
+  const saved = sessionStorage.getItem("fritzAdminToken");
+  if (saved) {
+    STATE.token = saved;
+    fetch("/admin/stats", { headers: { "X-Admin-Token": saved } }).then(r => {
+      if (r.ok) showApp();
+      else logout();
+    }).catch(() => logout());
+  }
+  document.getElementById("tokenInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loginFromInput();
+  });
+})();
+</script>
+</body>
+</html>

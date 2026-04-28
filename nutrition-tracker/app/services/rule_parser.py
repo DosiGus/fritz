@@ -86,8 +86,8 @@ def _split_segments(text: str) -> list[str]:
     Decimal commas between digits ('1,5kg') are not separators.
     """
     # Match commas that are NOT between digits — those split items. Newlines and
-    # 'und' always split.
-    raw = re.split(r"(?<!\d),(?!\d)|\n|\bund\b", text, flags=re.IGNORECASE)
+    # sentence dots split unless used as decimal separators. 'und' always splits.
+    raw = re.split(r"(?<!\d),(?!\d)|(?<!\d)\.(?!\d)|\n|\bund\b", text, flags=re.IGNORECASE)
     return [s.strip() for s in raw if s and s.strip()]
 
 
@@ -108,8 +108,10 @@ def _parse_segment(segment: str) -> list[ParsedFoodItem]:
     7. "X mit Y" split → "ein Kaffee mit Milch".
     8. Bare food → "1 Döner", "ein Kaffee".
     """
-    seg = segment.strip().rstrip(".")
+    seg = _strip_meal_context(segment.strip().rstrip("."))
     if not seg:
+        return []
+    if _is_attribute_sentence(seg):
         return []
 
     # 1. explicit weight/volume
@@ -181,7 +183,7 @@ def _try_explicit_weight_volume(seg: str) -> ParsedFoodItem | None:
     # Anything before/after the match becomes the name candidate.
     before = seg[: m.start()].strip()
     after = seg[m.end():].strip()
-    name_raw = (after or before).strip()
+    name_raw = _strip_extra_words((after or before).strip())
     if not name_raw:
         return None
     canonical = _resolve_name(name_raw)
@@ -238,7 +240,7 @@ def _try_number_plus_food(tokens: list[str]) -> ParsedFoodItem | None:
             unit="piece",
             confidence=_CONF_PIECE_KCAL_DEFAULT,
         )
-    if rule_cup and rule_cup.default_kcal:
+    if rule_cup and (rule_cup.default_kcal is not None or rule_cup.default_grams is not None):
         return ParsedFoodItem(
             name=canonical,
             quantity=qty or 1.0,
@@ -366,6 +368,19 @@ def _try_split_on_mit(tokens: list[str]) -> list[ParsedFoodItem] | None:
     # Parse left side as a single food.
     left_item = _try_number_plus_food(left) or _try_bare_food(left)
     if not left_item:
+        if all(token.lower() in PARSER_STOPWORDS for token in left):
+            right_name = _resolve_name(" ".join(right))
+            if right_name:
+                return [
+                    ParsedFoodItem(
+                        name=right_name,
+                        quantity=None,
+                        unit="unknown",
+                        confidence=_CONF_INGREDIENT_NO_QTY,
+                        needs_clarification=True,
+                        options=[],
+                    )
+                ]
         return None
 
     # Parse right side as ingredient with no quantity.
@@ -383,6 +398,8 @@ def _try_split_on_mit(tokens: list[str]) -> list[ParsedFoodItem] | None:
         name=right_canonical,
         quantity=None,
         unit="unknown",
+        role="component",
+        parent_name=left_item.name,
         notes=note,
         confidence=_CONF_INGREDIENT_NO_QTY,
         needs_clarification=True,
@@ -413,7 +430,7 @@ def _try_bare_food(tokens: list[str]) -> ParsedFoodItem | None:
             unit="piece",
             confidence=_CONF_PIECE_KCAL_DEFAULT,
         )
-    if rule_cup and rule_cup.default_kcal:
+    if rule_cup and (rule_cup.default_kcal is not None or rule_cup.default_grams is not None):
         return ParsedFoodItem(
             name=canonical,
             quantity=qty or 1.0,
@@ -503,9 +520,39 @@ def _find_token(tokens: list[str], target: str) -> int | None:
     return None
 
 
+def _strip_meal_context(text: str) -> str:
+    patterns = [
+        r"^(frühstück|mittagessen|abendessen|snack)\s*:\s*",
+        r"^(ich\s+)?(hatte|habe|aß|ass|getrunken|gegessen|gefrühstückt)\s+",
+        r"^(zum|zur)\s+(frühstück|mittagessen|abendessen)\s+",
+        r"^(heute|morgen|gerade)\s+",
+    ]
+    cleaned = text.strip()
+    changed = True
+    while changed:
+        changed = False
+        for pattern in patterns:
+            next_cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+            if next_cleaned != cleaned:
+                cleaned = next_cleaned
+                changed = True
+    return cleaned
+
+
+def _is_attribute_sentence(text: str) -> bool:
+    """Detect descriptive nutrition/portion sentences that are not standalone foods."""
+    return bool(re.search(
+        r"^(der|die|das)?\s*[\wÄÖÜäöüß -]+\s+"
+        r"(hat|hatte|haben|hatten|ist|war|waren)\s+"
+        r".*\b(fett|protein|eiweiß|kohlenhydrate|zucker|kcal|kalorien|größe|gross|groß)\b",
+        text,
+        re.IGNORECASE,
+    ))
+
+
 def _resolve_name(raw: str) -> str:
     """Map a raw food phrase to its canonical name via the alias table."""
-    raw = raw.strip()
+    raw = _strip_extra_words(raw.strip())
     if not raw:
         return raw
     direct = FOOD_ALIASES.get(raw.lower())
@@ -518,6 +565,11 @@ def _resolve_name(raw: str) -> str:
         if last:
             return last
     return canonicalize(raw)
+
+
+def _strip_extra_words(raw: str) -> str:
+    tokens = [token for token in raw.split() if token.lower() not in {"extra", "dazu", "zusätzlich", "zusaetzlich", "separat"}]
+    return " ".join(tokens)
 
 
 def has_meal_verb(text: str) -> bool:

@@ -1,5 +1,7 @@
 """Convert German written numbers to floats."""
 
+from __future__ import annotations
+
 _WORD_MAP: dict[str, float] = {
     "null": 0,
     "ein": 1,

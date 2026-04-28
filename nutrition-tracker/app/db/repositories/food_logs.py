@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import date, datetime, timezone
 
@@ -5,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.models import FoodLog, FoodLogItem
+from app.utils.time import user_day_bounds_utc, user_today
 
 
 class FoodLogRepository:
@@ -54,15 +57,19 @@ class FoodLogRepository:
             .first()
         )
 
-    def get_for_user_on_date(self, user_id: uuid.UUID, day: date) -> list[FoodLog]:
-        start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-        end = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
+    def get_for_user_on_date(
+        self,
+        user_id: uuid.UUID,
+        day: date,
+        tz_name: str | None = None,
+    ) -> list[FoodLog]:
+        start, end_exclusive = user_day_bounds_utc(day, tz_name)
         return (
             self.db.query(FoodLog)
             .filter(
                 FoodLog.user_id == user_id,
                 FoodLog.logged_at >= start,
-                FoodLog.logged_at <= end,
+                FoodLog.logged_at < end_exclusive,
                 FoodLog.status == "saved",
             )
             .order_by(FoodLog.logged_at.asc())
@@ -81,7 +88,14 @@ class FoodLogRepository:
         self.db.refresh(log)
         return log
 
-    def count_today(self) -> int:
+    def count_today(self, tz_name: str | None = None) -> int:
+        if tz_name:
+            start, end_exclusive = user_day_bounds_utc(user_today(tz_name), tz_name)
+            return (
+                self.db.query(FoodLog)
+                .filter(FoodLog.logged_at >= start, FoodLog.logged_at < end_exclusive)
+                .count()
+            )
         today = datetime.now(timezone.utc).date()
         start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
         return self.db.query(FoodLog).filter(FoodLog.logged_at >= start).count()

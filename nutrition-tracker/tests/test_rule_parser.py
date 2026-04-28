@@ -126,6 +126,19 @@ class TestSplitOnMit:
         assert msg.items[1].quantity is None
         assert msg.items[1].needs_clarification is True
 
+    def test_cappuccino_alias_with_context(self):
+        msg = parse("Ich hatte zum Frühstück zwei Cappuccino")
+        assert len(msg.items) == 1
+        assert msg.items[0].name == "Cappuccino"
+        assert msg.items[0].quantity == 2
+        assert msg.items[0].unit == "cup"
+
+    def test_size_phrase_with_milk_keeps_only_milk_clarification(self):
+        msg = parse("normale Größe mit Hafermilch")
+        assert len(msg.items) == 1
+        assert msg.items[0].name == "Hafermilch"
+        assert msg.items[0].needs_clarification is True
+
 
 class TestMealVerbHelper:
     def test_detects_hatte(self):

@@ -120,6 +120,10 @@ def _merge_item(
         merged = rule_item.model_copy(deep=True)
         decision = "rule"
         reason = "rule_explicit_weight_volume"
+    elif rule_item.quantity is not None and llm_item.quantity is None:
+        merged = rule_item.model_copy(deep=True)
+        decision = "rule"
+        reason = "rule_explicit_quantity"
     elif rule_item.quantity is None and llm_item.quantity is not None:
         merged = llm_item.model_copy(deep=True)
         decision = "llm"
@@ -143,7 +147,10 @@ def _merge_item(
         merged = rule_item.model_copy(deep=True)
 
     merged.name = canonicalize(merged.name)
+    merged.role = _merge_role(rule_item, llm_item)
+    merged.parent_name = rule_item.parent_name or llm_item.parent_name
     merged.notes = _merge_notes(rule_item.notes, llm_item.notes)
+    merged.modifiers = _merge_modifiers(rule_item.modifiers, llm_item.modifiers)
     merged.preparation = _merge_preparation(rule_item.preparation, llm_item.preparation)
     merged.confidence = round(max(rule_item.confidence, llm_item.confidence) - 0.05, 2)
 
@@ -223,6 +230,22 @@ def _merge_notes(rule_notes: str | None, llm_notes: str | None) -> str | None:
         if note and note not in values:
             values.append(note)
     return "; ".join(values) if values else None
+
+
+def _merge_modifiers(rule_modifiers: list[str], llm_modifiers: list[str]) -> list[str]:
+    values = []
+    for modifier in [*rule_modifiers, *llm_modifiers]:
+        if modifier and modifier not in values:
+            values.append(modifier)
+    return values
+
+
+def _merge_role(rule_item: ParsedFoodItem, llm_item: ParsedFoodItem) -> str:
+    if rule_item.role != "main":
+        return rule_item.role
+    if llm_item.role != "main" and rule_item.quantity is None:
+        return llm_item.role
+    return "main"
 
 
 def _merge_preparation(rule_prep: str | None, llm_prep: str | None) -> str | None:
