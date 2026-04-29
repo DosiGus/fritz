@@ -31,13 +31,15 @@ def food_intent_to_parsed(intent: FoodIntent, facts: list[HardFact]) -> ParsedFo
         )
 
         for component in entry.components:
-            has_amount = component.amount_value is not None
+            has_explicit_amount = (
+                component.amount_value is not None and component.amount_unit != "unknown"
+            )
             items.append(
                 ParsedFoodItem(
                     name=component.name,
-                    quantity=component.amount_value,
-                    unit=component.amount_unit if has_amount else "unknown",
-                    role="main" if has_amount else "component",
+                    quantity=component.amount_value if has_explicit_amount else None,
+                    unit=component.amount_unit if has_explicit_amount else "unknown",
+                    role="main" if has_explicit_amount else "component",
                     parent_name=entry.name,
                     notes=component.portion_hint,
                     confidence=_clamp(component.confidence or entry.confidence),

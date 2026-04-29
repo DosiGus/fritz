@@ -139,6 +139,40 @@ def test_food_intent_v2_cappuccino_flow(db, user):
     assert response.logged_items[0].name == "Cappuccino"
 
 
+def test_cappuccino_milk_component_with_fat_percent_does_not_double_count(db, user):
+    intent = FoodIntent(
+        meal_type="breakfast",
+        entries=[
+            FoodIntentEntry(
+                type="single",
+                name="Cappuccino",
+                quantity=2,
+                unit="cup",
+                components=[
+                    FoodIntentComponent(
+                        name="H-Milch",
+                        amount_value=3.5,
+                        amount_unit="unknown",
+                        portion_hint="in Cappuccino",
+                        confidence=0.8,
+                    )
+                ],
+                confidence=0.88,
+            )
+        ],
+        confidence=0.88,
+    )
+
+    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
+        response = handle_food_message(user.id, "zwei Cappuccino mit H-Milch 3,5%", source="voice", db=db)
+
+    log = FoodLogRepository(db).get_last_for_user(user.id)
+    assert log is not None
+    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).all()
+    assert [item.canonical_name for item in items] == ["Cappuccino"]
+    assert [item.name for item in response.logged_items] == ["Cappuccino"]
+
+
 def test_falafel_sandwich_components_dont_double_count(db, user):
     """Components inside a composite parent must not be saved as separate food items.
 
