@@ -19,6 +19,12 @@ _QUANTITY_UNIT_RE = re.compile(
     r"(?P<food>.+)$",
     re.IGNORECASE,
 )
+_QUANTITY_FOOD_TRAILING_AMOUNT_RE = re.compile(
+    r"^(?P<count>\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß]+)\s+"
+    r"(?P<food>.+?)\s+"
+    r"(?P<quantity>\d+(?:[.,]\d+)?)\s*(?P<unit>ml|l)$",
+    re.IGNORECASE,
+)
 _QUANTITY_FOOD_RE = re.compile(
     r"^(?P<quantity>\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß]+)\s+(?P<food>.+)$",
     re.IGNORECASE,
@@ -43,6 +49,7 @@ _CANONICAL_FOODS = {
     "apfel": "Apfel",
     "banane": "Banane",
     "bananen": "Banane",
+    "bier": "Bier",
     "brot": "Brot",
     "cappuccino": "Cappuccino",
     "ei": "Ei",
@@ -94,7 +101,7 @@ def _segments(text: str) -> list[str]:
     if _has_complex_marker(cleaned):
         return []
 
-    parts = re.split(r"\s*,\s*|\s+\bund\b\s+", cleaned, flags=re.IGNORECASE)
+    parts = re.split(r"(?<!\d)\s*,\s*(?!\d)|\s+\bund\b\s+", cleaned, flags=re.IGNORECASE)
     return [part.strip(" .") for part in parts if part.strip(" .")]
 
 
@@ -130,6 +137,21 @@ def _parse_segment(segment: str) -> ParsedFoodItem | None:
             quantity=quantity,
             unit=normalize_unit(quantity_unit.group("unit")),
             confidence=0.88,
+        )
+
+    trailing_amount = _QUANTITY_FOOD_TRAILING_AMOUNT_RE.match(segment)
+    if trailing_amount:
+        count = _parse_quantity(trailing_amount.group("count"))
+        amount = _parse_float(trailing_amount.group("quantity"))
+        food = _canonical_food(trailing_amount.group("food"), allow_unknown=False)
+        if count is None or amount is None or food is None:
+            return None
+        quantity, unit = _total_volume(count, amount, trailing_amount.group("unit"))
+        return ParsedFoodItem(
+            name=food,
+            quantity=quantity,
+            unit=unit,
+            confidence=0.9,
         )
 
     quantity_food = _QUANTITY_FOOD_RE.match(segment)
@@ -173,6 +195,8 @@ def _canonical_food(raw: str, allow_unknown: bool) -> str | None:
     known = _CANONICAL_FOODS.get(normalized)
     if known:
         return known
+    if normalized.endswith(" bier"):
+        return "Bier"
     if not allow_unknown:
         return None
     return " ".join(part.capitalize() for part in normalized.split())
@@ -181,6 +205,7 @@ def _canonical_food(raw: str, allow_unknown: bool) -> str | None:
 def _normalize_food_text(raw: str) -> str:
     value = raw.strip().strip(".")
     value = re.sub(r"^(?:eine?|einen|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn)\s+", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"^(?:kleine?|kleinen|kleiner|große?|gross(?:e|en|er)?|normale?|mittlere?)\s+", "", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value)
     return value.lower()
 
@@ -197,6 +222,15 @@ def _parse_float(raw: str) -> float | None:
         return float(raw.replace(",", "."))
     except ValueError:
         return None
+
+
+def _total_volume(count: float, amount: float, unit: str) -> tuple[float, str]:
+    normalized = normalize_unit(unit)
+    if normalized == "l":
+        return round(count * amount * 1000, 1), "ml"
+    if normalized == "ml" and 0 < amount < 2:
+        return round(count * amount * 1000, 1), "ml"
+    return round(count * amount, 1), "ml"
 
 
 def _meal_type(facts: list[HardFact]) -> str:

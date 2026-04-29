@@ -81,6 +81,7 @@ DEFAULT_NUTRITION: dict[str, dict[str, float]] = {
     "Mango": {"kcal_100g": 60, "protein_100g": 0.8, "carbs_100g": 15.0, "fat_100g": 0.4},
     "Erdbeere": {"kcal_100g": 32, "protein_100g": 0.7, "carbs_100g": 7.7, "fat_100g": 0.3},
     "Beeren": {"kcal_100g": 45, "protein_100g": 0.8, "carbs_100g": 10.0, "fat_100g": 0.4},
+    "Bier": {"kcal_100g": 43, "protein_100g": 0.5, "carbs_100g": 3.6, "fat_100g": 0.0},
     "Honig": {"kcal_100g": 304, "protein_100g": 0.3, "carbs_100g": 82.0, "fat_100g": 0.0},
     "Hummus": {"kcal_100g": 250, "protein_100g": 7.9, "carbs_100g": 14.3, "fat_100g": 17.8},
     "Halloumi": {"kcal_100g": 321, "protein_100g": 21.0, "carbs_100g": 2.2, "fat_100g": 25.0},

@@ -81,6 +81,16 @@ def test_meal_type_suffix_is_stripped_from_food_name():
     assert parsed.items[0].unit == "cup"
 
 
+def test_decimal_comma_volume_beer_does_not_split_into_fake_items():
+    parsed = _parse("Zwei kleine Heineken Bier 0,33 ml.")
+
+    assert parsed is not None
+    assert len(parsed.items) == 1
+    assert parsed.items[0].name == "Bier"
+    assert parsed.items[0].quantity == 660
+    assert parsed.items[0].unit == "ml"
+
+
 def test_complex_composite_is_left_for_openai():
     parsed = _parse("Falafel-Sandwich mit Hummus und Halloumi")
 
