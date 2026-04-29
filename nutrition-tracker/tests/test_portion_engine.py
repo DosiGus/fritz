@@ -46,39 +46,24 @@ class TestPortionRules:
         assert portion.grams is None
         assert portion.was_estimated is True
 
-    def test_chicken_bowl_reis_uses_kcal(self):
-        portion = resolve_portion(
-            _item(name="Chicken Bowl Reis", quantity=1, unit="portion", confidence=0.75)
+    def test_mayo_tbsp_uses_15g_default(self):
+        portion = resolve_portion(_item(name="Mayo", quantity=1, unit="tbsp", confidence=0.85))
+        assert portion.grams == 15
+        assert portion.was_estimated is True
+
+
+class TestLLMSuppliedOptions:
+    def test_options_carried_through_when_clarification_requested(self):
+        item = _item(
+            name="Bowl",
+            unit="bowl",
+            confidence=0.4,
+            needs_clarification=True,
+            options=[{"label": "Reis + Hähnchen", "default_kcal": 700}],
         )
-        assert portion.default_kcal == 700
-
-
-class TestSizedVariants:
-    def test_pasta_plate_emits_size_options(self):
-        portion = resolve_portion(_item(name="Pasta", quantity=1, unit="plate", confidence=0.5))
+        portion = resolve_portion(item)
         assert portion.needs_clarification is True
-        labels = [option["label"] for option in portion.options]
-        assert labels[:3] == ["Klein", "Normal", "Groß"]
-        assert labels[-1] == "Eigene Menge"
-
-
-class TestSpecialClarification:
-    def test_bowl_with_ingredient_emits_meal_variants(self):
-        portion = resolve_portion(
-            _item(name="Bowl", quantity=1, unit="bowl", notes="mit Hähnchen", confidence=0.4)
-        )
-        assert portion.needs_clarification is True
-        labels = [option.get("label") for option in portion.options]
-        assert "Reis + Hähnchen" in labels
-        assert "Salat + Hähnchen" in labels
-
-    def test_milch_in_kaffee_emits_custom_amount_options(self):
-        portion = resolve_portion(
-            _item(name="Milch", quantity=None, unit="unknown", notes="in Kaffee", confidence=0.4)
-        )
-        assert portion.needs_clarification is True
-        ml_values = [option.get("ml") for option in portion.options if "ml" in option]
-        assert ml_values == [10, 30, 125]
+        assert portion.options[0]["label"] == "Reis + Hähnchen"
 
 
 class TestUnresolvable:

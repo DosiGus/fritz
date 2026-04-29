@@ -17,14 +17,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/nutrition"
     redis_url: str = "redis://redis:6379/0"
 
-    ollama_base_url: str = "http://ollama:11434"
-    ollama_model: str = "qwen2.5:7b"
-    ollama_timeout: float = 30.0
-
     openai_api_key: str = ""
     openai_transcription_model: str = "gpt-4o-transcribe"
     openai_transcription_timeout: float = 60.0
-    food_intent_v2_enabled: bool = True
     openai_food_intent_model: str = "gpt-4o-mini"
     openai_food_intent_timeout: float = 30.0
 

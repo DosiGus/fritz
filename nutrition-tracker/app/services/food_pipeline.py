@@ -12,19 +12,14 @@ from app.schemas.bot_responses import BotResponse, Decision, LoggedItemSummary
 from app.schemas.nutrition import NutritionMatch
 from app.schemas.parsed_food import ParsedFoodItem, ParsedFoodMessage
 from app.schemas.portions import ResolvedPortion
-from app.services import rule_parser
 from app.services.audit_service import AuditService
 from app.services.clarification_service import build_clarification, resolve_custom_amount
 from app.services.confidence_engine import decide
 from app.services.food_intent_pipeline import parse_with_food_intent_v2
 from app.services.input_preprocessor import normalize_text
-from app.services.llm_parser import parse as llm_parse
-from app.services.food_intent_validator import validate_food_intent
 from app.services.nutrition_calculator import calculate_for_item, sum_items
 from app.services.nutrition_matcher import find_ambiguous_matches, match as match_nutrition
-from app.services.parser_merge import mark_llm_skipped, merge, should_call_llm
 from app.services.portion_engine import resolve_portion
-from app.services.recipe_decomposer import decompose_recipes
 from app.services.summary_service import build_daily_summary
 from app.services.user_memory_service import memory_phrase
 from app.utils.time import user_today
@@ -60,7 +55,13 @@ def handle_food_message(user_id: uuid.UUID, text: str, source: str = "text", db:
 
     parsed = parse_with_food_intent_v2(normalized, db=db, user_id=user_id)
     if parsed is None:
-        parsed = _parse_with_legacy_pipeline(normalized, db=db, user_id=user_id)
+        audit.log(event_type="parser_unavailable", user_id=user_id, payload={"text": normalized})
+        return BotResponse(
+            text=(
+                "Ich konnte deinen Eintrag gerade nicht verarbeiten. "
+                "Bitte versuche es in einem Moment nochmal."
+            )
+        )
 
     portions = [resolve_portion(item, user_id=user_id, db=db) for item in parsed.items]
     matches = [_match_for_portion(portion, db) for portion in portions]
@@ -102,17 +103,6 @@ def handle_food_message(user_id: uuid.UUID, text: str, source: str = "text", db:
         return build_clarification(payload, user_id=user_id, db=db)
 
     return finalize_log_from_payload(payload, user_id=user_id, db=db, decision=decision)
-
-
-def _parse_with_legacy_pipeline(normalized: str, db: Session, user_id: uuid.UUID) -> ParsedFoodMessage:
-    rule_result = rule_parser.parse(normalized)
-    if should_call_llm(normalized, rule_result):
-        llm_result = llm_parse(normalized, db=db, user_id=user_id)
-        parsed = merge(rule_result, llm_result, original_text=normalized, db=db, user_id=user_id)
-    else:
-        parsed = mark_llm_skipped(rule_result, db=db, user_id=user_id)
-    parsed = validate_food_intent(parsed, normalized, db=db, user_id=user_id)
-    return decompose_recipes(parsed, normalized, db=db, user_id=user_id)
 
 
 def finalize_log_from_payload(

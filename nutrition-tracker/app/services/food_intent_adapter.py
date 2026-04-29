@@ -5,40 +5,40 @@ from statistics import mean
 from app.schemas.food_intent import FoodIntent, FoodIntentEntry
 from app.schemas.parsed_food import ParsedFoodItem, ParsedFoodMessage
 from app.services.hard_fact_extractor import HardFact
-from app.services.static_data import canonicalize
 
 
 def food_intent_to_parsed(intent: FoodIntent, facts: list[HardFact]) -> ParsedFoodMessage:
+    """Convert the LLM's FoodIntent into the internal ParsedFoodMessage format.
+
+    The LLM is the source of truth. We only enforce hard facts the regex extractor
+    found in the original text (so the LLM cannot drop them).
+    """
     items: list[ParsedFoodItem] = []
     single_entry = len(intent.entries) == 1
 
     for entry in intent.entries:
         quantity = _enforced_quantity(entry, facts, single_entry)
-        name = canonicalize(entry.name)
-        unit = _normalized_entry_unit(name, entry.unit)
-        notes = _notes_for_entry(entry)
-
         items.append(
             ParsedFoodItem(
-                name=name,
+                name=entry.name,
                 quantity=quantity,
-                unit=unit,
+                unit=entry.unit,
                 role="main",
-                notes=notes,
+                notes=_notes_for_entry(entry),
                 modifiers=entry.modifiers,
                 confidence=_clamp(entry.confidence),
             )
         )
 
         for component in entry.components:
-            amount_value, amount_unit = _component_amount(component.amount_value, component.amount_unit)
+            has_amount = component.amount_value is not None
             items.append(
                 ParsedFoodItem(
-                    name=canonicalize(component.name),
-                    quantity=amount_value,
-                    unit=amount_unit,
-                    role="component" if amount_value is None else "main",
-                    parent_name=name,
+                    name=component.name,
+                    quantity=component.amount_value,
+                    unit=component.amount_unit if has_amount else "unknown",
+                    role="main" if has_amount else "component",
+                    parent_name=entry.name,
                     notes=component.portion_hint,
                     confidence=_clamp(component.confidence or entry.confidence),
                 )
@@ -69,18 +69,6 @@ def _enforced_meal_type(intent: FoodIntent, facts: list[HardFact]) -> str:
         if fact.type == "meal_type" and isinstance(fact.value, str):
             return fact.value
     return intent.meal_type
-
-
-def _component_amount(value: float | None, unit: str) -> tuple[float | None, str]:
-    if value is None:
-        return None, "unknown"
-    return value, unit
-
-
-def _normalized_entry_unit(name: str, unit: str) -> str:
-    if name in {"Cappuccino", "Kaffee", "Espresso"} and unit in {"piece", "portion", "unknown"}:
-        return "cup"
-    return unit
 
 
 def _notes_for_entry(entry: FoodIntentEntry) -> str | None:

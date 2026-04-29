@@ -8,11 +8,19 @@ from app.db.repositories.conversation_states import ConversationStateRepository
 from app.db.repositories.food_logs import FoodLogRepository
 from app.db.repositories.nutrition_items import NutritionItemRepository
 from app.db.repositories.users import UserRepository
+from app.schemas.food_intent import FoodIntent, FoodIntentEntry
 from app.services.clarification_service import resolve_clarification
 from app.services.edit_log_service import confirm_log, delete_log, start_edit_last, start_edit_log
 from app.services.food_pipeline import handle_food_message
 from app.services.meal_template_service import log_template, prompt_save_template_name
-from app.schemas.parsed_food import ParsedFoodItem, ParsedFoodMessage
+
+
+def _intent(name: str, quantity: float | None, unit: str = "g", confidence: float = 0.95) -> FoodIntent:
+    return FoodIntent(
+        meal_type="unknown",
+        entries=[FoodIntentEntry(type="single", name=name, quantity=quantity, unit=unit, confidence=confidence)],
+        confidence=confidence,
+    )
 
 
 @pytest.fixture()
@@ -109,7 +117,11 @@ def test_ambiguous_food_match_creates_clarification_state(db, user):
     NutritionItemRepository(db).create("Proteinriegel Schoko", kcal_100g=390, protein_100g=30, carbs_100g=35, fat_100g=12)
     NutritionItemRepository(db).create("Proteinriegel Vanille", kcal_100g=370, protein_100g=31, carbs_100g=33, fat_100g=11)
 
-    response = handle_food_message(user.id, "100g Proteinriegel", db=db)
+    with patch(
+        "app.services.food_intent_pipeline.parse_food_intent",
+        return_value=_intent("Proteinriegel", 100, "g"),
+    ):
+        response = handle_food_message(user.id, "100g Proteinriegel", db=db)
 
     assert response.decision.action == "ask_short_clarification"
     assert "Welches Lebensmittel passt?" in response.text
@@ -122,7 +134,11 @@ def test_ambiguous_food_match_creates_clarification_state(db, user):
 def test_food_match_button_response_saves_log(db, user):
     NutritionItemRepository(db).create("Proteinriegel Schoko", kcal_100g=390, protein_100g=30, carbs_100g=35, fat_100g=12)
     NutritionItemRepository(db).create("Proteinriegel Vanille", kcal_100g=370, protein_100g=31, carbs_100g=33, fat_100g=11)
-    handle_food_message(user.id, "100g Proteinriegel", db=db)
+    with patch(
+        "app.services.food_intent_pipeline.parse_food_intent",
+        return_value=_intent("Proteinriegel", 100, "g"),
+    ):
+        handle_food_message(user.id, "100g Proteinriegel", db=db)
 
     response = resolve_clarification("clarify:0", user.id, db)
 
@@ -196,63 +212,3 @@ def test_unknown_food_retry_uses_alternate_name_and_saves(db, user):
     item = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).one()
     assert item.canonical_name == "Skyr"
     assert float(item.grams) == 100
-
-
-def test_voice_like_component_text_does_not_double_count_milk(db, user):
-    llm_result = ParsedFoodMessage(
-        meal_type="breakfast",
-        items=[
-            ParsedFoodItem(name="Cappuccino", quantity=None, unit="unknown", notes="normale Größe", confidence=0.8),
-            ParsedFoodItem(
-                name="H Milch Die H Milch hat 3,6 Fett Die Cappuccinos hatten normale Größe",
-                quantity=None,
-                unit="unknown",
-                notes="in Cappuccino",
-                confidence=0.4,
-                needs_clarification=True,
-            ),
-            ParsedFoodItem(name="Milch", quantity=None, unit="unknown", notes="3,6% Fett", confidence=0.5),
-        ],
-        overall_confidence=0.53,
-        llm_called=True,
-    )
-
-    text = "Frühstück: 2 Cappuccino mit H-Milch. Die H-Milch hat 3,6% Fett. Die Cappuccinos hatten normale Größe."
-    with patch("app.services.food_pipeline.llm_parse", return_value=llm_result):
-        response = handle_food_message(user.id, text, source="voice", db=db)
-
-    assert response.decision.action in {"direct_save", "save_as_estimate"}
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    assert log is not None
-    assert float(log.total_kcal) == pytest.approx(162, abs=1)
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).all()
-    assert len(items) == 1
-    assert items[0].canonical_name == "Cappuccino"
-    assert float(items[0].quantity) == 2
-    assert float(items[0].grams) == pytest.approx(360)
-
-
-def test_skyr_bowl_with_toppings_is_decomposed_into_calculable_components(db, user):
-    llm_result = ParsedFoodMessage(
-        meal_type="snack",
-        items=[
-            ParsedFoodItem(name="skyr bowl", quantity=None, unit="bowl", confidence=0.8),
-            ParsedFoodItem(name="tk mangos", role="component", parent_name="skyr bowl", confidence=0.8),
-            ParsedFoodItem(name="honig", role="component", parent_name="skyr bowl", confidence=0.8),
-        ],
-        overall_confidence=0.8,
-        llm_called=True,
-    )
-
-    text = "dazu noch eine kleine skyr bowl mit tk mangos und honig"
-    with patch("app.services.food_pipeline.llm_parse", return_value=llm_result):
-        response = handle_food_message(user.id, text, source="text", db=db)
-
-    assert response.decision.action in {"direct_save", "save_as_estimate"}
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    assert log is not None
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
-    assert [item.canonical_name for item in items] == ["Skyr", "Mango", "Honig"]
-    assert [float(item.grams) for item in items] == pytest.approx([150, 60, 10])
-    assert float(log.total_kcal) == pytest.approx(96 + 36 + 30.4, abs=1)
-    assert [item.name for item in response.logged_items] == ["Skyr", "Mango", "Honig"]
