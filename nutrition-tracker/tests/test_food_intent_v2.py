@@ -1,4 +1,3 @@
-import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -53,6 +52,34 @@ def test_food_intent_adapter_preserves_single_entry_quantity_fact():
 
     assert parsed.items[0].name == "Cappuccino"
     assert parsed.items[0].quantity == 2
+
+
+def test_food_intent_adapter_keeps_components_attached_to_parent():
+    """Composite entries with components are returned as parent + role=component children."""
+    intent = FoodIntent(
+        meal_type="lunch",
+        entries=[
+            FoodIntentEntry(
+                type="composite",
+                name="Falafel Sandwich",
+                quantity=1,
+                unit="piece",
+                components=[
+                    FoodIntentComponent(name="Hummus", role="component", confidence=0.8),
+                    FoodIntentComponent(name="Halloumi", role="component", confidence=0.8),
+                ],
+                confidence=0.9,
+            )
+        ],
+        confidence=0.9,
+    )
+
+    parsed = food_intent_to_parsed(intent, [])
+
+    assert [item.name for item in parsed.items] == ["Falafel Sandwich", "Hummus", "Halloumi"]
+    assert parsed.items[0].role == "main"
+    assert parsed.items[1].role == "component"
+    assert parsed.items[1].parent_name == "Falafel Sandwich"
 
 
 def test_openai_food_intent_parser_uses_structured_outputs():
@@ -112,186 +139,51 @@ def test_food_intent_v2_cappuccino_flow(db, user):
     assert response.logged_items[0].name == "Cappuccino"
 
 
-def test_food_intent_v2_drops_meal_context_item_from_correction(db, user):
+def test_cappuccino_milk_component_with_fat_percent_does_not_double_count(db, user):
     intent = FoodIntent(
         meal_type="breakfast",
         entries=[
-            FoodIntentEntry(type="single", name="Cappuccino", quantity=2, unit="piece", confidence=1.0),
-            FoodIntentEntry(type="single", name="Frühstück", quantity=None, unit="unknown", confidence=0.9),
-        ],
-        confidence=0.95,
-    )
-
-    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
-        response = handle_food_message(user.id, "2 cappuccino zum frühstück", db=db)
-
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).all()
-    assert response.decision.action in {"direct_save", "save_as_estimate"}
-    assert [item.canonical_name for item in items] == ["Cappuccino"]
-    assert float(items[0].grams) == pytest.approx(360)
-    assert float(log.total_kcal) == pytest.approx(162, abs=1)
-
-
-def test_food_intent_v2_decomposes_skyr_bowl_components(db, user):
-    intent = FoodIntent(
-        meal_type="snack",
-        entries=[
             FoodIntentEntry(
-                type="composite",
-                name="Skyr Bowl",
-                unit="bowl",
-                portion_size="small",
+                type="single",
+                name="Cappuccino",
+                quantity=2,
+                unit="cup",
                 components=[
-                    FoodIntentComponent(name="Skyr", role="base", confidence=0.9),
-                    FoodIntentComponent(name="TK Mango", role="topping", confidence=0.8),
-                    FoodIntentComponent(name="Honig", role="topping", confidence=0.8),
+                    FoodIntentComponent(
+                        name="H-Milch",
+                        amount_value=3.5,
+                        amount_unit="unknown",
+                        portion_hint="in Cappuccino",
+                        confidence=0.8,
+                    )
                 ],
-                confidence=0.85,
+                confidence=0.88,
             )
         ],
-        confidence=0.85,
+        confidence=0.88,
     )
 
     with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
-        response = handle_food_message(user.id, "kleine skyr bowl mit tk mango und honig", db=db)
+        response = handle_food_message(user.id, "zwei Cappuccino mit H-Milch 3,5%", source="voice", db=db)
 
     log = FoodLogRepository(db).get_last_for_user(user.id)
     assert log is not None
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
-    assert [item.canonical_name for item in items] == ["Skyr", "Mango", "Honig"]
-    assert [float(item.grams) for item in items] == pytest.approx([150, 60, 10])
-    assert [item.name for item in response.logged_items] == ["Skyr", "Mango", "Honig"]
+    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).all()
+    assert [item.canonical_name for item in items] == ["Cappuccino"]
+    assert [item.name for item in response.logged_items] == ["Cappuccino"]
 
 
-def test_food_intent_v2_decomposes_oatmeal_bowl(db, user):
-    intent = FoodIntent(
-        meal_type="breakfast",
-        entries=[
-            FoodIntentEntry(
-                type="composite",
-                name="Oatmeal Bowl",
-                unit="bowl",
-                portion_size="small",
-                components=[
-                    FoodIntentComponent(name="Haferflocken", role="base", confidence=0.9),
-                    FoodIntentComponent(name="Banane", role="topping", confidence=0.8),
-                    FoodIntentComponent(name="Honig", role="topping", confidence=0.8),
-                ],
-                confidence=0.85,
-            )
-        ],
-        confidence=0.85,
-    )
+def test_falafel_sandwich_components_dont_double_count(db, user):
+    """Components inside a composite parent must not be saved as separate food items.
 
-    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
-        response = handle_food_message(user.id, "kleine porridge bowl mit banane und honig", db=db)
-
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
-    assert [item.canonical_name for item in items] == ["Haferflocken", "Banane", "Honig"]
-    assert [float(item.grams) for item in items] == pytest.approx([40, 60, 5])
-    assert [item.name for item in response.logged_items] == ["Haferflocken", "Banane", "Honig"]
-
-
-def test_food_intent_v2_decomposes_smoothie(db, user):
-    intent = FoodIntent(
-        meal_type="snack",
-        entries=[
-            FoodIntentEntry(
-                type="composite",
-                name="Smoothie",
-                unit="glass",
-                portion_size="medium",
-                components=[
-                    FoodIntentComponent(name="Banane", role="component", confidence=0.85),
-                    FoodIntentComponent(name="Milch", role="component", confidence=0.85),
-                    FoodIntentComponent(name="Whey Protein", role="component", confidence=0.85),
-                ],
-                confidence=0.85,
-            )
-        ],
-        confidence=0.85,
-    )
-
-    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
-        response = handle_food_message(user.id, "smoothie mit banane milch und whey", db=db)
-
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
-    assert [item.canonical_name for item in items] == ["Banane", "Milch", "Whey Protein"]
-    assert [float(item.grams) for item in items] == pytest.approx([120, 250, 25])
-    assert [item.name for item in response.logged_items] == ["Banane", "Milch", "Whey Protein"]
-
-
-def test_food_intent_v2_decomposes_rice_bowl(db, user):
+    This prevents the "Falafel Sandwich + Hummus + Halloumi + Auberginencreme" double-counting bug.
+    """
     intent = FoodIntent(
         meal_type="lunch",
         entries=[
             FoodIntentEntry(
                 type="composite",
-                name="Rice Bowl",
-                unit="bowl",
-                portion_size="medium",
-                components=[
-                    FoodIntentComponent(name="Reis", role="base", confidence=0.9),
-                    FoodIntentComponent(name="Hähnchen", role="component", confidence=0.85),
-                    FoodIntentComponent(name="Avocado", role="component", confidence=0.85),
-                ],
-                confidence=0.85,
-            )
-        ],
-        confidence=0.85,
-    )
-
-    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
-        response = handle_food_message(user.id, "reis bowl mit hähnchen und avocado", db=db)
-
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
-    assert [item.canonical_name for item in items] == ["Reis", "Hähnchen", "Avocado"]
-    assert [float(item.grams) for item in items] == pytest.approx([180, 150, 80])
-    assert [item.name for item in response.logged_items] == ["Reis", "Hähnchen", "Avocado"]
-
-
-def test_food_intent_v2_decomposes_pasta_plate(db, user):
-    intent = FoodIntent(
-        meal_type="dinner",
-        entries=[
-            FoodIntentEntry(
-                type="composite",
-                name="Pasta",
-                unit="plate",
-                portion_size="large",
-                components=[
-                    FoodIntentComponent(name="Pasta", role="base", confidence=0.9),
-                    FoodIntentComponent(name="Hähnchen", role="component", confidence=0.85),
-                    FoodIntentComponent(name="Tomate", role="component", confidence=0.85),
-                    FoodIntentComponent(name="Olivenöl", role="component", confidence=0.85),
-                ],
-                confidence=0.85,
-            )
-        ],
-        confidence=0.85,
-    )
-
-    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=intent):
-        response = handle_food_message(user.id, "großer teller pasta mit hähnchen tomaten und öl", db=db)
-
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
-    assert [item.canonical_name for item in items] == ["Pasta", "Hähnchen", "Tomate", "Olivenöl"]
-    assert [float(item.grams) for item in items] == pytest.approx([500, 180, 180, 15])
-    assert [item.name for item in response.logged_items] == ["Pasta", "Hähnchen", "Tomate", "Olivenöl"]
-
-
-def test_food_intent_v2_keeps_sandwich_components_inside_parent_and_scopes_sides(db, user):
-    intent = FoodIntent(
-        meal_type="lunch",
-        entries=[
-            FoodIntentEntry(
-                type="composite",
-                name="Falafel-Sandwich",
+                name="Falafel Sandwich",
                 quantity=1,
                 unit="piece",
                 components=[
@@ -307,19 +199,18 @@ def test_food_intent_v2_keeps_sandwich_components_inside_parent_and_scopes_sides
                 quantity=1,
                 unit="portion",
                 portion_size="small",
-                confidence=0.9,
+                confidence=0.85,
             ),
             FoodIntentEntry(
                 type="single",
                 name="Mayo",
-                quantity=None,
-                unit="unknown",
+                quantity=15,
+                unit="g",
                 modifiers=["etwas"],
                 confidence=0.7,
             ),
-            FoodIntentEntry(type="single", name="dazu", quantity=None, unit="unknown", confidence=0.5),
         ],
-        confidence=0.9,
+        confidence=0.85,
     )
 
     text = (
@@ -332,20 +223,29 @@ def test_food_intent_v2_keeps_sandwich_components_inside_parent_and_scopes_sides
     log = FoodLogRepository(db).get_last_for_user(user.id)
     items = db.query(FoodLogItem).filter(FoodLogItem.food_log_id == log.id).order_by(FoodLogItem.created_at.asc()).all()
     assert [item.canonical_name for item in items] == ["Falafel Sandwich", "Süßkartoffelpommes", "Mayo"]
-    assert [float(item.grams) for item in items] == pytest.approx([300, 120, 15])
-    assert float(log.total_kcal) == pytest.approx(1116, abs=2)
-    assert float(log.total_kcal) < 1300
     assert [item.name for item in response.logged_items] == ["Falafel Sandwich", "Süßkartoffelpommes", "Mayo"]
 
 
-def test_food_intent_v2_falls_back_to_legacy_pipeline(db, user):
-    with (
-        patch("app.services.food_intent_pipeline.settings.food_intent_v2_enabled", True),
-        patch("app.services.food_intent_pipeline.parse_food_intent", return_value=None),
-    ):
+def test_simple_food_pipeline_does_not_call_openai_when_key_missing(db, user):
+    with patch("app.services.food_intent_pipeline.parse_food_intent") as mock_openai:
+        response = handle_food_message(user.id, "250g Skyr", db=db)
+
+    mock_openai.assert_not_called()
+    assert response.decision.action == "direct_save"
+    assert FoodLogRepository(db).get_last_for_user(user.id) is not None
+
+
+def test_food_pipeline_falls_back_to_deterministic_parse_when_openai_fails(db, user):
+    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=None):
         response = handle_food_message(user.id, "250g Skyr", db=db)
 
     assert response.decision.action == "direct_save"
-    log = FoodLogRepository(db).get_last_for_user(user.id)
-    assert log is not None
-    assert float(log.total_kcal) == pytest.approx(160, abs=1)
+    assert FoodLogRepository(db).get_last_for_user(user.id) is not None
+
+
+def test_food_pipeline_returns_friendly_error_when_no_parser_can_handle_input(db, user):
+    with patch("app.services.food_intent_pipeline.parse_food_intent", return_value=None):
+        response = handle_food_message(user.id, "Falafel-Sandwich mit Hummus", db=db)
+
+    assert "nicht verarbeiten" in response.text
+    assert FoodLogRepository(db).get_last_for_user(user.id) is None

@@ -27,7 +27,6 @@ docker compose exec app alembic upgrade head
 
 ```bash
 docker compose exec app python scripts/seed_default_foods.py
-docker compose exec app python scripts/seed_food_aliases.py
 docker compose exec app python scripts/seed_portion_rules.py
 ```
 
@@ -75,28 +74,15 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile ops ru
 | `TELEGRAM_WEBHOOK_SECRET` | — | Random secret for webhook validation |
 | `DATABASE_URL` | ✅ | PostgreSQL connection string |
 | `REDIS_URL` | ✅ | Redis connection string |
-| `OLLAMA_BASE_URL` | — | Ollama server URL |
-| `OLLAMA_MODEL` | — | Default: `qwen2.5:7b` |
 | `OPENAI_API_KEY` | ✅ voice | Required for OpenAI voice transcription |
 | `OPENAI_TRANSCRIPTION_MODEL` | — | Default: `gpt-4o-transcribe` |
 | `OPENAI_TRANSCRIPTION_TIMEOUT` | — | Default: `60` seconds |
+| `OPENAI_FOOD_INTENT_MODEL` | — | Default: `gpt-4o-mini` |
+| `OPENAI_FOOD_INTENT_TIMEOUT` | — | Default: `30` seconds |
 | `USDA_API_KEY` | — | From api.nal.usda.gov |
 | `SENTRY_DSN` | — | Sentry error tracking |
 | `VOICE_PROCESSING_ENABLED` | — | Default: `true` |
 | `MAX_VOICE_SECONDS` | — | Default: `120` |
-
----
-
-## Ollama Setup
-
-Docker Compose includes an `ollama` service. After the stack is running, pull the configured model once:
-
-```bash
-docker compose up -d ollama
-docker compose exec ollama ollama pull qwen2.5:7b
-```
-
-Keep `OLLAMA_BASE_URL=http://ollama:11434` when the app runs inside Docker. If you run the FastAPI app directly on your Mac and install Ollama locally, use `OLLAMA_BASE_URL=http://localhost:11434` instead.
 
 ---
 
@@ -109,7 +95,7 @@ app/
   db/          SQLAlchemy models + repositories
   schemas/     Pydantic schemas
   services/    Business logic and Nutrition Intelligence Engine
-  integrations/ HTTP clients (Open Food Facts, USDA, Ollama, Telegram)
+  integrations/ HTTP clients (Open Food Facts, USDA, Telegram)
   workers/     RQ worker + voice jobs
   utils/       Units, text numbers, fuzzy matching, rate_limit
 alembic/       DB migrations
@@ -137,11 +123,8 @@ pytest tests/test_units.py -v
 # Run voice job tests (all mocked — no Whisper binary needed)
 pytest tests/test_voice_jobs.py -v
 
-# Run rule parser tests
-pytest tests/test_rule_parser.py -v
-
-# Run gold-standard engine tests
-pytest tests/test_goldstandard_engine.py -v
+# Run parser architecture tests
+pytest tests/test_deterministic_food_parser.py tests/test_food_intent_v2.py -v
 ```
 
 ---
@@ -292,9 +275,9 @@ PGPASSWORD=postgres bash scripts/backup_db.sh
 
 Implemented modules:
 
-- `app/services/rule_parser.py` — rule-based German food extraction
-- `app/services/llm_parser.py` — Ollama-based structure-only fallback parsing
-- `app/services/parser_merge.py` — Rule/LLM merge logic with hallucination guard
+- `app/services/deterministic_food_parser.py` — local parsing for simple food logs
+- `app/services/openai_food_intent_parser.py` — structured OpenAI parsing for complex food logs
+- `app/services/food_intent_pipeline.py` — deterministic-first parser orchestration
 - `app/services/portion_engine.py` — gram/ml/default-kcal resolution and options
 - `app/services/confidence_engine.py` — confidence aggregation and decisions
 - `app/services/nutrition_matcher.py` — cache, alias, fuzzy, default and API matching
@@ -324,12 +307,11 @@ Before going live with real users, verify the following:
 - [ ] `TELEGRAM_BOT_TOKEN` is the production bot token (not a test bot)
 - [ ] `USDA_API_KEY` set (USDA requests will fail or use demo key otherwise)
 - [ ] `OPEN_FOOD_FACTS_USER_AGENT` includes contact email
-- [ ] `OLLAMA_BASE_URL` points to running Ollama instance with model pulled
 - [ ] `VOICE_PROCESSING_ENABLED=true` and `OPENAI_API_KEY` set
 
 ### Data
 
-- [ ] All seed scripts run: `seed_default_foods`, `seed_food_aliases`, `seed_portion_rules`
+- [ ] All seed scripts run: `seed_default_foods`, `seed_portion_rules`
 - [ ] Migrations applied (`alembic upgrade head`, currently through `0003`)
 - [ ] `ADMIN_TOKEN` set and kept out of source control
 

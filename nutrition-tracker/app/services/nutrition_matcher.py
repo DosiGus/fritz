@@ -12,7 +12,7 @@ from app.integrations.open_food_facts import OpenFoodFactsClient
 from app.integrations.usda_fdc import UsdaFdcClient
 from app.schemas.nutrition import NutritionMatch
 from app.services.audit_service import AuditService
-from app.services.static_data import DEFAULT_NUTRITION, MEAL_CONTEXT_WORDS, canonicalize
+from app.services.static_data import DEFAULT_NUTRITION, canonicalize
 from app.utils.fuzzy_matching import best_match, score
 
 logger = logging.getLogger(__name__)
@@ -46,13 +46,6 @@ def match(canonical_name: str, db: Session | None = None) -> NutritionMatch | No
     """
     query = _normalize_food_query(canonical_name)
     canonical = canonicalize(query)
-    if _is_non_food_query(canonical):
-        if db is not None:
-            AuditService(db).log(
-                event_type="nutrition_match_rejected",
-                payload={"canonical_name": canonical_name, "normalized": canonical, "reason": "meal_context_word"},
-            )
-        return None
 
     if db is not None:
         cached = _match_cache(canonical, db)
@@ -111,8 +104,6 @@ def find_ambiguous_matches(canonical_name: str, db: Session, limit: int = 4) -> 
     """
     query = _normalize_food_query(canonical_name)
     canonical = canonicalize(query)
-    if _is_non_food_query(canonical):
-        return []
     candidates: list[tuple[float, NutritionMatch]] = []
 
     for item in db.query(NutritionItem).limit(500).all():
@@ -328,10 +319,6 @@ def _normalize_food_query(name: str) -> str:
     tokens = re.findall(r"[A-Za-zÄÖÜäöüß]+", name)
     filtered = [token for token in tokens if token.lower() not in _PREPARATION_WORDS]
     return " ".join(filtered).strip() or name.strip()
-
-
-def _is_non_food_query(name: str) -> bool:
-    return name.strip().lower() in MEAL_CONTEXT_WORDS
 
 
 def _num(value: object) -> float | None:

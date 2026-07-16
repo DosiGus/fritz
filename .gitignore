@@ -46,3 +46,4 @@ logs/
 # Temp
 tmp/
 temp/
+.gstack/
